@@ -40,9 +40,11 @@ jobs:
 
       - name: Inject Microsoft config (optional)
         shell: pwsh
-        if: ${{ secrets.MS_CLIENT_ID != '' }}
+        env:
+          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
         run: |
-          $content = @"
+          if ($env:MS_CLIENT_ID -and $env:MS_CLIENT_ID -ne '') {
+            $content = @"
           const MS_CONFIG = {
             clientId: '$env:MS_CLIENT_ID',
             redirectUri: 'http://localhost:3000/auth-callback',
@@ -50,9 +52,8 @@ jobs:
           };
           module.exports = MS_CONFIG;
           "@
-          Set-Content -Path "src/ms-config.js" -Value $content
-        env:
-          MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+            Set-Content -Path "src/ms-config.js" -Value $content
+          }
 
       - name: Install dependencies
         run: npm ci
