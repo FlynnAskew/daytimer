@@ -259,7 +259,8 @@ try {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: false
+        detectSessionInUrl: false,
+        flowType: 'pkce'
       }
     });
   }
@@ -338,28 +339,49 @@ ipcRenderer.on('oauth-callback', async (event, url) => {
   setStatus('<span class="spinner"></span> Completing sign-in…');
 
   try {
-    // Parse the access token & refresh token from the URL fragment
     const urlObj = new URL(url);
-    // Tokens come in the hash fragment: daytimer://auth-callback#access_token=...&refresh_token=...
-    const hash = urlObj.hash.substring(1); // remove leading #
-    const params = new URLSearchParams(hash);
-    const accessToken = params.get('access_token');
-    const refreshToken = params.get('refresh_token');
+    // Tokens may come in either the hash (#) or query (?) — check both
+    const hash = urlObj.hash.substring(1);
+    const hashParams = new URLSearchParams(hash);
+    const queryParams = urlObj.searchParams;
 
-    if (!accessToken || !refreshToken) {
-      throw new Error('No tokens in callback URL');
+    const accessToken  = hashParams.get('access_token')  || queryParams.get('access_token');
+    const refreshToken = hashParams.get('refresh_token') || queryParams.get('refresh_token');
+    const code         = hashParams.get('code')          || queryParams.get('code');
+    const errorMsg     = hashParams.get('error_description') || queryParams.get('error_description');
+
+    if (errorMsg) {
+      throw new Error(decodeURIComponent(errorMsg));
     }
 
-    // Set the session on the Supabase client
-    const { data, error } = await dbClient.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken
-    });
+    let session = null;
 
-    if (error) throw error;
-    if (!data.session) throw new Error('Session not created');
+    if (accessToken && refreshToken) {
+      // Token flow — set session directly
+      const { data, error } = await dbClient.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken
+      });
+      if (error) throw error;
+      session = data.session;
+    } else if (code) {
+      // Code flow — exchange code for session
+      const { data, error } = await dbClient.auth.exchangeCodeForSession(code);
+      if (error) throw error;
+      session = data.session;
+    } else {
+      // Fallback — try to get session anyway (might already be set)
+      const { data: { session: existing } } = await dbClient.auth.getSession();
+      if (existing) {
+        session = existing;
+      } else {
+        throw new Error('No tokens or code in callback URL. URL was: ' + url);
+      }
+    }
 
-    const email = data.session.user.email || '';
+    if (!session) throw new Error('Session not created');
+
+    const email = session.user.email || '';
     if (!email.endsWith('@howleruk.com')) {
       await dbClient.auth.signOut();
       setStatus('Access restricted to @howleruk.com accounts.', 'error');
@@ -368,7 +390,7 @@ ipcRenderer.on('oauth-callback', async (event, url) => {
     }
 
     showLoading();
-    setTimeout(() => ipcRenderer.send('login-success', data.session.user), 500);
+    setTimeout(() => ipcRenderer.send('login-success', session.user), 500);
   } catch (e) {
     console.error('Callback handling failed:', e);
     setStatus('Sign-in failed: ' + e.message, 'error');
