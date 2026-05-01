@@ -32,17 +32,33 @@ function createLoginWindow() {
     center: true,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      webviewTag: true
     }
   });
 
   loginWindow.loadFile(path.join(__dirname, '../renderer/login.html'));
   loginWindow.setMenuBarVisibility(false);
 
+  // Handle OAuth popup windows (Microsoft sign-in opens in a child window)
+  loginWindow.webContents.setWindowOpenHandler(({ url }) => {
+    return {
+      action: 'allow',
+      overrideBrowserWindowOptions: {
+        width: 600,
+        height: 750,
+        title: 'Sign in with Microsoft',
+        center: true,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true
+        }
+      }
+    };
+  });
+
   loginWindow.on('closed', () => {
     loginWindow = null;
-    // If the user closed the login window without signing in,
-    // and there's no other window open, quit
     if (!widgetWindow && !mainWindow) {
       app.quit();
     }
