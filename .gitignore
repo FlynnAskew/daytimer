@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+out/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+*.swp
+
+# Editor
+.vscode/
+.idea/
+
+# Local Supabase config (built fresh by GitHub Actions during release)
+# Don't commit your real keys — see SETUP-GITHUB.md
+src/supabase-config.js
+src/ms-config.js
+
+# Built app
+*.exe

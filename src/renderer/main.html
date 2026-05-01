@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="teal-dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DayTimer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/themes.css">
+<link rel="stylesheet" href="main.css">
+</head>
+<body>
+
+<div class="app">
+
+  <!-- ═══════════════ SIDEBAR ═══════════════ -->
+  <aside class="sidebar">
+    <div class="logo">D</div>
+
+    <button class="nav-btn active" data-page="tracker">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+      </svg>
+      <span class="tooltip">Time Tracker</span>
+    </button>
+
+    <button class="nav-btn" data-page="planner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/>
+      </svg>
+      <span class="tooltip">Day Plan</span>
+    </button>
+
+    <button class="nav-btn" data-page="todos">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+      </svg>
+      <span class="tooltip">To-Do</span>
+    </button>
+
+    <button class="nav-btn" data-page="insights">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+      </svg>
+      <span class="tooltip">Insights</span>
+    </button>
+
+    <button class="nav-btn" data-page="stats">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M9 11H3v10h6V11zM21 7h-6v14h6V7zM15 3H9v18h6V3z"/>
+      </svg>
+      <span class="tooltip">Stats</span>
+    </button>
+
+    <div class="sidebar-bottom">
+      <button class="nav-btn" data-page="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        <span class="tooltip">Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ═══════════════ MAIN ═══════════════ -->
+  <main class="main">
+
+    <!-- ─── TRACKER PAGE ─── -->
+    <div class="page active" id="page-tracker">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Time Log</div>
+          <div class="page-subtitle" id="trackerDate">—</div>
+        </div>
+        <div class="date-nav">
+          <button class="date-btn nav" id="trackerPrev">‹</button>
+          <button class="date-btn today-btn" id="trackerToday" data-calendar="tracker">Today</button>
+          <button class="date-btn nav" id="trackerNext">›</button>
+        </div>
+      </div>
+
+      <div class="tracker-body">
+        <div class="tracker-summary">
+          <div class="stat-card">
+            <div class="stat-label">Tracked</div>
+            <div class="stat-value" id="statTotal">0h 0m</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Top Category</div>
+            <div class="stat-value dim" id="statTop">—</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">Tasks Logged</div>
+            <div class="stat-value" id="statCount">0</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-label">First / Last</div>
+            <div class="stat-value dim" id="statSpan">—</div>
+          </div>
+        </div>
+
+        <div class="tracker-table" id="trackerTable">
+          <div class="table-header">
+            <div>Start</div>
+            <div>End</div>
+            <div>Task</div>
+            <div>Category</div>
+            <div>Duration</div>
+            <div></div>
+          </div>
+          <div id="trackerRows">
+            <div class="empty-state">
+              <div class="big">⏱</div>
+              <div>Loading…</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── PLANNER PAGE ─── -->
+    <div class="page" id="page-planner">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Day Plan</div>
+          <div class="page-subtitle" id="plannerDate">—</div>
+        </div>
+        <div class="date-nav">
+          <button class="date-btn nav" id="plannerPrev">‹</button>
+          <button class="date-btn today-btn" id="plannerToday" data-calendar="planner">Today</button>
+          <button class="date-btn nav" id="plannerNext">›</button>
+        </div>
+      </div>
+
+      <div class="planner-body">
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;">
+          💡 Click a slot (or drag across multiple) to add · Click a task to edit · Drag bottom edge to resize · <kbd style="font-family:inherit;background:var(--surface2);padding:1px 5px;border-radius:3px;border:1px solid var(--border);font-size:10px;">Shift</kbd>+drag to move
+        </div>
+        <div class="planner-top">
+          <div class="view-tabs">
+            <button class="view-tab active" data-view="plan">Plan</button>
+            <button class="view-tab" data-view="actual">Actual</button>
+            <button class="view-tab" data-view="split">Split View</button>
+          </div>
+          <div class="plan-match">
+            <span>Plan vs Actual</span>
+            <span class="match-score" id="planMatchScore">—</span>
+          </div>
+          <div class="plan-match">
+            <span>Planned</span>
+            <span class="match-score" id="planTotal">—</span>
+          </div>
+          <div class="zoom-control">
+            <span class="zoom-icon" title="Zoom out">🔍</span>
+            <input type="range" id="plannerZoom" min="1" max="4" step="0.5" value="1">
+            <span class="zoom-label" id="zoomLabel">1×</span>
+          </div>
+        </div>
+
+        <div class="planner-single" id="plannerSingle">
+          <div class="planner-grid" id="plannerGridSingle"></div>
+        </div>
+
+        <div class="planner-split" id="plannerSplit" style="display:none;">
+          <div class="split-col">
+            <div class="split-col-header">Planned</div>
+            <div class="planner-grid planner-grid-split" id="plannerGridPlanned"></div>
+          </div>
+          <div class="split-col">
+            <div class="split-col-header">Actual</div>
+            <div class="planner-grid planner-grid-split" id="plannerGridActual"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── TO-DO PAGE ─── -->
+    <div class="page" id="page-todos">
+      <div class="page-header">
+        <div>
+          <div class="page-title">To-Do</div>
+          <div class="page-subtitle">Park ideas, then drop them into your Day Plan when ready</div>
+        </div>
+        <div class="date-nav">
+          <div class="range-tabs" id="todoSourceTabs">
+            <button class="range-tab active" data-source="local">In-app</button>
+            <button class="range-tab" data-source="ms">Microsoft To Do</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="analysis-body">
+        <div id="todoLocalView">
+          <div class="settings-section" style="margin-bottom:14px;">
+            <div style="display:flex;gap:8px;align-items:flex-start;">
+              <input type="text" class="field-input" id="todoNewInput" placeholder="Add a new to-do…" style="flex:1;">
+              <select class="field-input" id="todoNewCategory" style="width:160px;">
+                <option value="">— No category —</option>
+              </select>
+              <button class="modal-btn primary" id="todoAddBtn">Add</button>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span id="todoListTitle">Open</span>
+              <button class="mini-btn" id="todoToggleDone" style="font-size:11px;">Show done</button>
+            </div>
+            <div id="todoList">
+              <div class="empty-state" style="padding:30px;"><div>No to-dos yet.</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div id="todoMsView" style="display:none;">
+          <div class="settings-section">
+            <div class="section-title">Microsoft To Do</div>
+            <div id="msStatusContent">
+              <div class="empty-state" style="padding:30px;">
+                <div>Microsoft To Do integration is not yet configured.</div>
+                <div style="font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.6;">
+                  To enable: register an app in Azure portal, then paste your Client ID into <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">src/ms-config.js</code>.<br>See the comments in that file for step-by-step instructions.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ─── INSIGHTS PAGE ─── -->
+    <div class="page" id="page-insights">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Insights</div>
+          <div class="page-subtitle" id="insightsSubtitle">—</div>
+        </div>
+        <div class="date-nav">
+          <div class="range-tabs" id="rangeTabs">
+            <button class="range-tab" data-range="day">Day</button>
+            <button class="range-tab active" data-range="week">Week</button>
+            <button class="range-tab" data-range="month">Month</button>
+            <button class="range-tab" data-range="year">Year</button>
+            <button class="range-tab" data-range="custom">Custom</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="analysis-body">
+        <div class="custom-range" id="customRange">
+          <label>From</label>
+          <input type="date" id="customFrom">
+          <label>To</label>
+          <input type="date" id="customTo">
+          <button class="apply-btn" id="customApply">Apply</button>
+          <div class="range-summary" id="rangeSummary">—</div>
+        </div>
+
+        <!-- Goals section -->
+        <div class="chart-card full-width" id="goalsCard">
+          <div class="chart-title" style="display:flex;justify-content:space-between;align-items:center;">
+            <span>Goals</span>
+            <button class="mini-btn" id="addGoalBtn" style="font-size:11px;padding:4px 10px;border:1px dashed var(--accent);color:var(--accent);border-radius:6px;">+ Add Goal</button>
+          </div>
+          <div id="goalsContent">
+            <div class="empty-state" style="padding:20px;"><div>No goals set. Click "Add Goal" to create one.</div></div>
+          </div>
+        </div>
+
+        <div class="analysis-grid">
+          <div class="chart-card">
+            <div class="chart-title">Time by Category</div>
+            <div class="cat-bars" id="chartCategoryBars">
+              <div class="empty-state"><div>No data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">Daily Hours</div>
+            <div class="bar-chart" id="chartDailyHours">
+              <div class="empty-state"><div>No data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">Time of Day Heatmap</div>
+            <div id="chartHeatmap">
+              <div class="empty-state"><div>No data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">Week-on-Week Trend</div>
+            <div class="bar-chart" id="chartWeekTrend">
+              <div class="empty-state"><div>No data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card full-width">
+            <div class="chart-title">Summary</div>
+            <div class="big-stats" id="chartSummary">
+              <div class="big-stat">
+                <div class="big-stat-value" id="summaryHours">0h</div>
+                <div class="big-stat-label">Total tracked</div>
+              </div>
+              <div class="big-stat">
+                <div class="big-stat-value dim" id="summaryTasks">0</div>
+                <div class="big-stat-label">Tasks logged</div>
+              </div>
+              <div class="big-stat">
+                <div class="big-stat-value dim" id="summaryCats">0</div>
+                <div class="big-stat-label">Categories used</div>
+              </div>
+              <div class="big-stat">
+                <div class="big-stat-value dim" id="summaryAvg">0m</div>
+                <div class="big-stat-label">Avg task length</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── STATS PAGE ─── -->
+    <div class="page" id="page-stats">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Stats</div>
+          <div class="page-subtitle">Your patterns & productivity insights</div>
+        </div>
+      </div>
+
+      <div class="analysis-body">
+        <div class="stats-hero" id="statsHero">
+          <div class="hero-card">
+            <div class="hero-icon">🔥</div>
+            <div class="hero-value" id="streakValue">—</div>
+            <div class="hero-label">Current streak</div>
+            <div class="hero-sub" id="streakSub">days logged in a row</div>
+          </div>
+          <div class="hero-card">
+            <div class="hero-icon">🏆</div>
+            <div class="hero-value" id="longestStreakValue">—</div>
+            <div class="hero-label">Longest streak</div>
+            <div class="hero-sub">days in a row</div>
+          </div>
+          <div class="hero-card">
+            <div class="hero-icon">📅</div>
+            <div class="hero-value" id="bestDayValue">—</div>
+            <div class="hero-label">Best day of week</div>
+            <div class="hero-sub" id="bestDaySub">most productive</div>
+          </div>
+          <div class="hero-card">
+            <div class="hero-icon">⚡</div>
+            <div class="hero-value" id="totalDaysValue">—</div>
+            <div class="hero-label">Days tracked</div>
+            <div class="hero-sub">all time</div>
+          </div>
+        </div>
+
+        <div class="analysis-grid">
+          <div class="chart-card">
+            <div class="chart-title">🕐 Peak productivity windows</div>
+            <div class="section-subtitle" style="margin-top:-10px;">When you do most of each category</div>
+            <div id="peakWindows">
+              <div class="empty-state"><div>Not enough data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">📈 Categories trending</div>
+            <div class="section-subtitle" style="margin-top:-10px;">Compared to last 4 weeks</div>
+            <div id="trendingCats">
+              <div class="empty-state"><div>Not enough data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">⏰ Work pattern</div>
+            <div class="section-subtitle" style="margin-top:-10px;">Your typical day</div>
+            <div id="workPattern">
+              <div class="empty-state"><div>Not enough data yet</div></div>
+            </div>
+          </div>
+
+          <div class="chart-card">
+            <div class="chart-title">🎯 Plan adherence</div>
+            <div class="section-subtitle" style="margin-top:-10px;">How well you stick to your plan</div>
+            <div id="planAdherence">
+              <div class="empty-state"><div>Not enough data yet</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── SETTINGS PAGE ─── -->
+    <div class="page" id="page-settings">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Settings</div>
+          <div class="page-subtitle">Profile, theme & categories</div>
+        </div>
+      </div>
+
+      <div class="settings-body">
+
+        <div class="settings-section">
+          <div class="section-title">Profile</div>
+          <div class="section-subtitle">Account login & multi-user support coming in a future update.</div>
+          <div class="field-row">
+            <div class="field-label">Your name</div>
+            <input type="text" class="field-input" id="profileName" placeholder="Flynn Williams">
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Widget</div>
+          <div class="field-row">
+            <div class="field-label">Lost the widget?</div>
+            <div>
+              <button class="modal-btn" id="resetWidgetBtn" style="font-size:12px;">Reset position to main screen</button>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">If your widget ended up on a disconnected monitor, click to bring it back.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Appearance</div>
+          <div class="section-subtitle">Click a theme — the whole app (and floating widget) updates instantly.</div>
+
+          <div class="theme-section-label">Dark</div>
+          <div class="theme-grid" id="themeGridDark"></div>
+
+          <div class="theme-section-label">Light</div>
+          <div class="theme-grid" id="themeGridLight"></div>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Categories</div>
+          <div class="section-subtitle">Add, rename or remove. These appear in the widget dropdown and in charts.</div>
+          <div class="cat-list" id="categoryList"></div>
+          <button class="add-cat-btn" id="addCategoryBtn">+ Add Category</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">About</div>
+          <div class="field-row">
+            <div class="field-label">Version</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span id="appVersion" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--text);">—</span>
+              <button class="modal-btn" id="checkUpdateBtn" style="font-size:11px;padding:5px 12px;">Check for updates</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label"></div>
+            <div id="updateStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ═══════════════ MODAL ═══════════════ -->
+<div class="modal-backdrop" id="modalBackdrop">
+  <div class="modal" id="modal"></div>
+</div>
+
+<!-- ═══════════════ CALENDAR POPOVER ═══════════════ -->
+<div class="calendar-popover" id="calendarPopover">
+  <div class="calendar-header">
+    <button class="calendar-nav" id="calPrev">‹</button>
+    <div class="calendar-month" id="calMonth">—</div>
+    <button class="calendar-nav" id="calNext">›</button>
+  </div>
+  <div class="calendar-grid" id="calGrid"></div>
+  <div class="calendar-footer">
+    <div id="calLegend">—</div>
+    <button class="calendar-today-btn" id="calTodayBtn">Jump to today</button>
+  </div>
+</div>
+
+<!-- Supabase library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="main.js"></script>
+
+</body>
+</html>

@@ -1,0 +1,971 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="teal-dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DayTimer Widget</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/themes.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: transparent;
+  overflow: hidden;
+  user-select: none;
+  padding: 4px;
+}
+
+.widget {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  overflow: hidden;
+  width: 312px;
+  position: relative;
+  transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  cursor: grab;
+}
+
+.titlebar-left { display: flex; align-items: center; gap: 8px; }
+
+.dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.dot.paused { background: #fbbf24; box-shadow: 0 0 6px #fbbf24; animation: none; }
+.dot.idle { background: var(--text-dim); box-shadow: none; animation: none; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.app-name {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.titlebar-right {
+  display: flex; gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  width: 24px; height: 24px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-family: inherit;
+  transition: color 0.15s, background 0.15s;
+}
+
+.icon-btn:hover { color: var(--text); background: var(--surface2); }
+
+.body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.timer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.timer {
+  font-family: 'DM Mono', monospace;
+  font-size: 28px;
+  font-weight: 500;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  transition: color 0.2s;
+}
+
+.timer.paused { color: #fbbf24; }
+.timer.idle { color: var(--text-dim); }
+
+.pause-btn {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.pause-btn:hover { border-color: var(--accent); color: var(--text); }
+.pause-btn.active { border-color: #fbbf24; color: #fbbf24; }
+.pause-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.task-input,
+.category-select {
+  width: 100%;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.task-input::placeholder { color: var(--text-dim); }
+.task-input:focus,
+.category-select:focus { border-color: var(--accent); }
+.task-input:disabled,
+.category-select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.category-select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888899' stroke-width='2'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+}
+
+.category-select option { background: var(--surface2); color: var(--text); }
+
+.next-btn {
+  width: 100%;
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  padding: 9px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--bg);
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s, background 0.2s;
+  letter-spacing: 0.02em;
+}
+
+.next-btn:hover { opacity: 0.9; }
+.next-btn:active { transform: scale(0.98); }
+
+.next-btn.end-day {
+  background: var(--danger);
+}
+
+.next-btn.start-day {
+  background: var(--accent);
+}
+
+/* Instant fade-clear animation when task is logged */
+.body.clearing .task-input,
+.body.clearing .category-select {
+  animation: clearFlash 0.18s ease-out;
+}
+
+@keyframes clearFlash {
+  0% { background: var(--accent-soft); border-color: var(--accent); }
+  100% { background: var(--surface2); border-color: var(--border); }
+}
+
+.status-row {
+  font-size: 10px;
+  color: var(--text-dim);
+  text-align: center;
+  min-height: 12px;
+}
+
+.status-row.error { color: var(--danger); }
+.status-row.success { color: var(--accent); }
+
+/* Upcoming task preview */
+.upcoming {
+  display: none;
+  padding: 7px 10px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  transition: all 0.3s;
+  align-items: center;
+  gap: 8px;
+}
+
+.upcoming.visible { display: flex; }
+
+.upcoming-main {
+  flex: 1;
+  min-width: 0; /* allow text truncation to work in flex */
+}
+
+.upcoming-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-dim);
+  margin-bottom: 2px;
+}
+
+.upcoming-task {
+  color: var(--text);
+  font-weight: 500;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.upcoming-time {
+  font-family: 'DM Mono', monospace;
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.upcoming-start-btn {
+  flex-shrink: 0;
+  background: var(--accent);
+  color: var(--bg);
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.1s;
+}
+
+.upcoming-start-btn:hover { opacity: 0.9; }
+.upcoming-start-btn:active { transform: scale(0.96); }
+
+.upcoming.overdue {
+  background: rgba(251,191,36,0.12);
+  border-color: #fbbf24;
+}
+.upcoming.overdue .upcoming-label,
+.upcoming.overdue .upcoming-time { color: #fbbf24; }
+.upcoming.overdue .upcoming-start-btn { background: #fbbf24; }
+
+.upcoming.very-overdue {
+  background: rgba(248,113,113,0.12);
+  border-color: #f87171;
+}
+.upcoming.very-overdue .upcoming-label,
+.upcoming.very-overdue .upcoming-time { color: #f87171; }
+.upcoming.very-overdue .upcoming-start-btn { background: #f87171; }
+
+.widget.minimised .body { display: none; }
+.widget.minimised .titlebar { border-bottom: none; }
+</style>
+</head>
+<body>
+  <div class="widget" id="widget">
+
+    <div class="titlebar">
+      <div class="titlebar-left">
+        <div class="dot" id="statusDot"></div>
+        <span class="app-name">DayTimer</span>
+      </div>
+      <div class="titlebar-right">
+        <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
+        <button class="icon-btn" id="minimiseBtn" title="Minimise">─</button>
+      </div>
+    </div>
+
+    <div class="body" id="widgetBody">
+      <div class="timer-row">
+        <div class="timer" id="timerDisplay">00:00:00</div>
+        <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
+      </div>
+
+      <input
+        class="task-input"
+        id="taskInput"
+        type="text"
+        placeholder="What are you working on?"
+        maxlength="120"
+        disabled
+      />
+
+      <select class="category-select" id="categorySelect" disabled>
+        <option value="">— Select category —</option>
+      </select>
+
+      <div class="upcoming" id="upcomingPanel">
+        <div class="upcoming-main">
+          <div class="upcoming-label">Coming up</div>
+          <div class="upcoming-task" id="upcomingTask"></div>
+          <div class="upcoming-time" id="upcomingTime"></div>
+        </div>
+        <button class="upcoming-start-btn" id="upcomingStartBtn" title="Start this task now">Start →</button>
+      </div>
+
+      <button class="next-btn start-day" id="nextBtn">Start Day</button>
+
+      <div class="status-row" id="statusRow"></div>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    let supabaseConfig = { url: 'YOUR_SUPABASE_PROJECT_URL', anonKey: 'YOUR_SUPABASE_ANON_KEY' };
+    try {
+      supabaseConfig = require('../supabase-config.js');
+    } catch (e) {
+      console.warn('supabase-config.js missing — see supabase-config.example.js');
+    }
+
+    // ── Supabase ──────────────────────────────────────────────
+    let dbClient = null;
+    let dbReady = false;
+    try {
+      if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
+          supabaseConfig.anonKey && !supabaseConfig.anonKey.includes('YOUR_')) {
+        dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+        dbReady = true;
+      }
+    } catch (e) { console.error(e); }
+
+    // ── DOM refs ──────────────────────────────────────────────
+    const widget = document.getElementById('widget');
+    const widgetBody = document.getElementById('widgetBody');
+    const timerDisplay = document.getElementById('timerDisplay');
+    const taskInput = document.getElementById('taskInput');
+    const categorySelect = document.getElementById('categorySelect');
+    const nextBtn = document.getElementById('nextBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const minimiseBtn = document.getElementById('minimiseBtn');
+    const openMainBtn = document.getElementById('openMainBtn');
+    const statusDot = document.getElementById('statusDot');
+    const statusRow = document.getElementById('statusRow');
+    const upcomingPanel = document.getElementById('upcomingPanel');
+    const upcomingTask = document.getElementById('upcomingTask');
+    const upcomingTime = document.getElementById('upcomingTime');
+    const upcomingStartBtn = document.getElementById('upcomingStartBtn');
+
+    // ── State ─────────────────────────────────────────────────
+    let seconds = 0;
+    let isPaused = false;
+    let isMinimised = false;
+    let dayStarted = false;
+    let pauseStartTime = null;  // when pause began (for break logging)
+    let lastEndDayAttempt = 0;  // timestamp of last End Day click
+    let startTime = null;       // current task start time (epoch wall-clock)
+    let pauseBlockStartTime = null; // when the pause began (for eventual break log)
+    let pausedAccumulated = 0;  // total ms spent paused for current task
+    let pauseStartedAt = null;  // when the most recent pause began
+    let idleCheckInterval = null;
+    let lastActivityTime = Date.now();
+    let todayPlan = [];
+    let currentUpcomingItem = null; // the plan item currently shown in the Coming Up panel
+    let dismissedUpcomingIds = new Set(); // plan items the user "started" — skip them in the panel
+
+    // ── Helpers ───────────────────────────────────────────────
+    const pad = n => String(n).padStart(2, '0');
+    function formatDuration(secs) {
+      return pad(Math.floor(secs / 3600)) + ':' +
+             pad(Math.floor((secs % 3600) / 60)) + ':' +
+             pad(secs % 60);
+    }
+    function todayStr() {
+      const d = new Date();
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    function localDateString(d) {
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    // ── Theme sync ────────────────────────────────────────────
+    (async () => {
+      try {
+        const theme = await ipcRenderer.invoke('get-theme');
+        document.documentElement.setAttribute('data-theme', theme || 'teal-dark');
+      } catch (e) {}
+    })();
+
+    ipcRenderer.on('theme-changed', (event, theme) => {
+      document.documentElement.setAttribute('data-theme', theme);
+    });
+
+    // ── Categories ────────────────────────────────────────────
+    async function loadCategories() {
+      const defaults = [
+        'Calling', 'Teams Meetings', 'Internal Meetings',
+        'Quoting', 'Emails/Admin', 'Creative Tasks', 'Time Wasting'
+      ];
+      let cats = defaults;
+      if (dbReady) {
+        try {
+          const { data, error } = await dbClient.from('categories')
+            .select('name').order('sort_order', { ascending: true });
+          if (!error && data && data.length > 0) cats = data.map(c => c.name);
+        } catch (e) { console.error(e); }
+      }
+      const currentValue = categorySelect.value;
+      categorySelect.innerHTML = '<option value="">— Select category —</option>' +
+        cats.map(c => `<option value="${c}">${c}</option>`).join('');
+      if (currentValue && cats.includes(currentValue)) categorySelect.value = currentValue;
+    }
+    loadCategories();
+    ipcRenderer.on('refresh-categories', () => loadCategories());
+
+    // ── Connection status ─────────────────────────────────────
+    if (dbReady) {
+      statusRow.textContent = 'Connected';
+      statusRow.className = 'status-row success';
+      setTimeout(() => { statusRow.textContent = ''; statusRow.className = 'status-row'; }, 1500);
+    } else {
+      statusRow.textContent = 'Supabase not configured';
+      statusRow.className = 'status-row error';
+    }
+
+    // ── Check if day already started ──────────────────────────
+    async function checkDayStatus() {
+      if (!dbReady) return;
+      try {
+        const { data } = await dbClient.from('time_entries')
+          .select('id, entry_type, ended_at')
+          .eq('date', todayStr())
+          .order('started_at', { ascending: false })
+          .limit(1);
+
+        if (data && data.length > 0) {
+          const last = data[0];
+          // If day was previously ended, stay in "Start Day" mode
+          if (last.entry_type === 'day_end') {
+            setStartDayMode();
+          } else {
+            // Continue where left off
+            setActiveMode();
+          }
+        } else {
+          setStartDayMode();
+        }
+      } catch (e) { console.error(e); }
+    }
+
+    function setStartDayMode() {
+      dayStarted = false;
+      nextBtn.textContent = 'Start Day';
+      nextBtn.classList.add('start-day');
+      nextBtn.classList.remove('end-day');
+      pauseBtn.disabled = true;
+      taskInput.disabled = true;
+      categorySelect.disabled = true;
+      timerDisplay.textContent = '00:00:00';
+    }
+
+    function setActiveMode() {
+      dayStarted = true;
+      nextBtn.textContent = 'Next Task →';
+      nextBtn.classList.remove('start-day', 'end-day');
+      pauseBtn.disabled = false;
+      taskInput.disabled = false;
+      categorySelect.disabled = false;
+      startTime = new Date();
+      seconds = 0;
+      taskInput.focus();
+    }
+
+    function setPausedMode() {
+      nextBtn.textContent = 'End Day';
+      nextBtn.classList.add('end-day');
+    }
+
+    function setUnpausedMode() {
+      nextBtn.textContent = 'Next Task →';
+      nextBtn.classList.remove('end-day');
+    }
+
+    checkDayStatus();
+
+    // ── Timer (uses real timestamp diff so it doesn't drift) ─
+    setInterval(() => {
+      if (dayStarted && !isPaused && startTime) {
+        const elapsedMs = Date.now() - startTime.getTime() - pausedAccumulated;
+        seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+        timerDisplay.textContent = formatDuration(seconds);
+        lastActivityTime = Date.now();
+      }
+    }, 1000);
+
+    function resetTimer() {
+      seconds = 0;
+      startTime = new Date();
+      pausedAccumulated = 0;
+      pauseStartedAt = null;
+      timerDisplay.textContent = '00:00:00';
+    }
+
+    // ── Load today's plan for "Coming up" ─────────────────────
+    async function loadUpcoming() {
+      if (!dbReady) return;
+      try {
+        const { data } = await dbClient.from('day_plans')
+          .select('*').eq('date', todayStr())
+          .order('planned_start', { ascending: true });
+        todayPlan = data || [];
+        updateUpcomingDisplay();
+      } catch (e) { console.error(e); }
+    }
+
+    function updateUpcomingDisplay() {
+      if (!dayStarted || todayPlan.length === 0) {
+        upcomingPanel.classList.remove('visible');
+        currentUpcomingItem = null;
+        return;
+      }
+
+      const now = new Date();
+      const currentMins = now.getHours() * 60 + now.getMinutes();
+      const currentTaskName = (taskInput.value || '').trim().toLowerCase();
+      const currentTaskCat  = categorySelect.value || '';
+
+      // Auto-detect: if the user is working on something matching a planned task,
+      // mark that planned item as "in progress" and skip it (so Coming Up
+      // advances to the *next* planned task)
+      if (currentTaskName) {
+        for (const p of todayPlan) {
+          if (dismissedUpcomingIds.has(p.id)) continue;
+          const planName = (p.task_name || '').toLowerCase();
+          // Fuzzy match: same category AND name starts-with / contains same first word
+          const sameCategory = p.category && p.category === currentTaskCat;
+          const sameName = planName === currentTaskName ||
+                           planName.startsWith(currentTaskName) ||
+                           currentTaskName.startsWith(planName);
+          if (sameName || (sameCategory && firstWord(planName) === firstWord(currentTaskName))) {
+            // Auto-mark this one as in-progress so the panel shows the NEXT one
+            dismissedUpcomingIds.add(p.id);
+            break;
+          }
+        }
+      }
+
+      // Find the first planned task that hasn't been started yet
+      let current = null;
+      let next = null;
+      for (const p of todayPlan) {
+        if (dismissedUpcomingIds.has(p.id)) continue;
+        const [sh, sm] = p.planned_start.split(':').map(Number);
+        const [eh, em] = p.planned_end.split(':').map(Number);
+        const pStart = sh * 60 + sm;
+        const pEnd = eh * 60 + em;
+        if (currentMins >= pStart && currentMins < pEnd) {
+          current = { ...p, startMins: pStart, endMins: pEnd };
+          break;
+        }
+        if (currentMins < pStart && !next) {
+          next = { ...p, startMins: pStart, endMins: pEnd };
+        }
+      }
+
+      const item = current || next;
+      if (!item) {
+        upcomingPanel.classList.remove('visible');
+        currentUpcomingItem = null;
+        return;
+      }
+
+      currentUpcomingItem = item;
+      upcomingTask.textContent = item.task_name + (item.category ? ` · ${item.category}` : '');
+
+      if (current) {
+        const overBy = currentMins - current.endMins;
+        if (overBy > 0) {
+          upcomingTime.textContent = `Over by ${overBy} min${overBy !== 1 ? 's' : ''}`;
+          upcomingPanel.classList.add(overBy >= 15 ? 'very-overdue' : 'overdue');
+          upcomingPanel.classList.remove(overBy >= 15 ? 'overdue' : 'very-overdue');
+        } else {
+          const remaining = current.endMins - currentMins;
+          upcomingTime.textContent = `${remaining} min${remaining !== 1 ? 's' : ''} remaining · ends ${current.planned_end.substring(0,5)}`;
+          upcomingPanel.classList.remove('overdue', 'very-overdue');
+        }
+      } else {
+        const inMins = next.startMins - currentMins;
+        upcomingTime.textContent = `Starts at ${next.planned_start.substring(0,5)} · in ${inMins} min${inMins !== 1 ? 's' : ''}`;
+        upcomingPanel.classList.remove('overdue', 'very-overdue');
+      }
+
+      upcomingPanel.classList.add('visible');
+    }
+
+    function firstWord(s) {
+      return (s || '').toLowerCase().split(/\s+/)[0] || '';
+    }
+
+    loadUpcoming();
+    setInterval(updateUpcomingDisplay, 30000); // refresh every 30s
+    setInterval(loadUpcoming, 5 * 60000);       // reload from DB every 5min
+
+    // ── Auto-resize the widget window based on content height ─
+    function resizeWindowToContent() {
+      if (isMinimised) return;
+      // Measure the widget + a little padding for the body margin
+      const widgetHeight = widget.offsetHeight;
+      const totalHeight = widgetHeight + 16; // account for body padding
+      ipcRenderer.send('widget-resize', totalHeight);
+    }
+
+    // Observe changes in the widget size
+    const resizeObserver = new ResizeObserver(() => {
+      resizeWindowToContent();
+    });
+    resizeObserver.observe(widget);
+
+    // ── Pause / Resume ────────────────────────────────────────
+    pauseBtn.addEventListener('click', () => {
+      if (!dayStarted) return;
+      isPaused = !isPaused;
+      pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
+      pauseBtn.classList.toggle('active', isPaused);
+      timerDisplay.classList.toggle('paused', isPaused);
+      statusDot.classList.toggle('paused', isPaused);
+
+      if (isPaused) {
+        pauseBlockStartTime = new Date();
+        pauseStartedAt = Date.now();
+        setPausedMode();
+      } else {
+        // Resumed — add the time we were paused to accumulator
+        if (pauseStartedAt) {
+          pausedAccumulated += Date.now() - pauseStartedAt;
+          pauseStartedAt = null;
+        }
+        // Resume — log the break if it lasted long enough
+        logBreak();
+        pauseBlockStartTime = null;
+        setUnpausedMode();
+      }
+    });
+
+    async function logBreak() {
+      if (!pauseBlockStartTime) return;
+      const breakEnd = new Date();
+      const breakDuration = Math.round((breakEnd - pauseBlockStartTime) / 1000);
+      // Only log if at least 30 seconds
+      if (breakDuration < 30) return;
+
+      if (dbReady) {
+        try {
+          await dbClient.from('time_entries').insert([{
+            task_name: 'Break',
+            category: null,
+            started_at: pauseBlockStartTime.toISOString(),
+            ended_at: breakEnd.toISOString(),
+            duration_secs: breakDuration,
+            date: todayStr(),
+            entry_type: 'break'
+          }]);
+        } catch (e) { console.error('Break log failed', e); }
+      }
+    }
+
+    // ── Minimise ──────────────────────────────────────────────
+    minimiseBtn.addEventListener('click', () => {
+      isMinimised = !isMinimised;
+      widget.classList.toggle('minimised', isMinimised);
+      minimiseBtn.textContent = isMinimised ? '□' : '─';
+      ipcRenderer.send(isMinimised ? 'widget-minimise' : 'widget-expand');
+    });
+
+    // ── Open main app ─────────────────────────────────────────
+    openMainBtn.addEventListener('click', () => {
+      ipcRenderer.send('open-main');
+    });
+
+    // ── Idle detection (auto-stop after 1hr inactivity post-5pm) ─
+    function checkIdle() {
+      if (!dayStarted) return;
+      const now = new Date();
+      const hoursInactive = (Date.now() - lastActivityTime) / (1000 * 60 * 60);
+      const is5pmOrLater = now.getHours() >= 17;
+
+      if (is5pmOrLater && hoursInactive >= 1) {
+        // Auto-end the day
+        console.log('Idle auto-stop triggered');
+        endDay(true);
+      }
+    }
+
+    // Track user activity
+    ['mousemove', 'keydown', 'click'].forEach(evt => {
+      window.addEventListener(evt, () => { lastActivityTime = Date.now(); });
+    });
+    setInterval(checkIdle, 60000); // check every minute
+
+    // ── Main button action ────────────────────────────────────
+    async function handleMainButton() {
+      if (!dayStarted) {
+        startDay();
+      } else if (isPaused) {
+        // Check if this is a quick Pause → End Day (within 30s)
+        await endDay(false);
+      } else {
+        logAndNext();
+      }
+    }
+
+    async function startDay() {
+      const now = new Date();
+      if (dbReady) {
+        try {
+          await dbClient.from('time_entries').insert([{
+            task_name: 'Day started',
+            category: null,
+            started_at: now.toISOString(),
+            ended_at: now.toISOString(),
+            duration_secs: 0,
+            date: todayStr(),
+            entry_type: 'day_start'
+          }]);
+        } catch (e) { console.error(e); }
+      }
+      setActiveMode();
+      lastActivityTime = Date.now();
+      loadUpcoming();
+    }
+
+    async function endDay(isIdle = false) {
+      const now = new Date();
+      const pauseBlock = pauseBlockStartTime;
+
+      // If pause started <30s ago, don't log it as a break
+      const pauseDuration = pauseBlock ? (now - pauseBlock) / 1000 : 0;
+      const shouldLogBreak = pauseBlock && pauseDuration >= 30;
+
+      if (shouldLogBreak) {
+        try {
+          await dbClient.from('time_entries').insert([{
+            task_name: 'Break',
+            category: null,
+            started_at: pauseBlock.toISOString(),
+            ended_at: now.toISOString(),
+            duration_secs: Math.round(pauseDuration),
+            date: todayStr(),
+            entry_type: 'break'
+          }]);
+        } catch (e) { console.error(e); }
+      }
+
+      // Log the day end
+      if (dbReady) {
+        try {
+          await dbClient.from('time_entries').insert([{
+            task_name: isIdle ? 'Day auto-ended (idle)' : 'Day ended',
+            category: null,
+            started_at: now.toISOString(),
+            ended_at: now.toISOString(),
+            duration_secs: 0,
+            date: todayStr(),
+            entry_type: 'day_end'
+          }]);
+        } catch (e) { console.error(e); }
+      }
+
+      // Reset widget
+      dayStarted = false;
+      isPaused = false;
+      pauseBlockStartTime = null;
+      pauseStartedAt = null;
+      pausedAccumulated = 0;
+      seconds = 0;
+      dismissedUpcomingIds = new Set();
+      taskInput.value = '';
+      categorySelect.value = '';
+      timerDisplay.textContent = '00:00:00';
+      timerDisplay.classList.remove('paused');
+      statusDot.classList.remove('paused');
+      pauseBtn.textContent = 'Pause';
+      pauseBtn.classList.remove('active');
+      setStartDayMode();
+      upcomingPanel.classList.remove('visible');
+
+      statusRow.textContent = isIdle ? 'Day auto-ended (idle)' : 'Day ended ✓';
+      statusRow.className = 'status-row success';
+      setTimeout(() => { statusRow.textContent = ''; statusRow.className = 'status-row'; }, 3000);
+    }
+
+    async function logAndNext() {
+      const task = taskInput.value.trim();
+      const category = categorySelect.value;
+
+      if (!task) {
+        taskInput.focus();
+        taskInput.style.borderColor = 'var(--danger)';
+        setTimeout(() => taskInput.style.borderColor = '', 600);
+        return;
+      }
+
+      const endTime = new Date();
+      const duration = seconds;
+      const entry = {
+        task_name: task,
+        category: category || null,
+        started_at: startTime.toISOString(),
+        ended_at: endTime.toISOString(),
+        duration_secs: duration,
+        date: localDateString(startTime),
+        entry_type: 'task'
+      };
+
+      widgetBody.classList.add('clearing');
+      setTimeout(() => widgetBody.classList.remove('clearing'), 180);
+
+      // Reset UI immediately
+      taskInput.value = '';
+      categorySelect.value = '';
+      resetTimer();
+      taskInput.focus();
+      updateUpcomingDisplay();
+
+      if (dbReady) {
+        try {
+          const { error } = await dbClient.from('time_entries').insert([entry]);
+          if (error) {
+            statusRow.textContent = '⚠ Save failed';
+            statusRow.className = 'status-row error';
+            setTimeout(() => { statusRow.textContent = ''; statusRow.className = 'status-row'; }, 3000);
+          }
+        } catch (e) { console.error(e); }
+      }
+    }
+
+    nextBtn.addEventListener('click', handleMainButton);
+
+    taskInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && dayStarted && !isPaused) handleMainButton();
+    });
+
+    // When the user types or changes category, re-evaluate the Coming Up panel
+    // (auto-advance if the current task matches a planned item)
+    let upcomingUpdateTimer = null;
+    function scheduleUpcomingUpdate() {
+      clearTimeout(upcomingUpdateTimer);
+      upcomingUpdateTimer = setTimeout(updateUpcomingDisplay, 500);
+    }
+    taskInput.addEventListener('input', scheduleUpcomingUpdate);
+    categorySelect.addEventListener('change', scheduleUpcomingUpdate);
+
+    // ── Start button on "Coming Up" panel ─────────────────────
+    upcomingStartBtn.addEventListener('click', async () => {
+      if (!currentUpcomingItem || !dayStarted) return;
+      // Capture values before anything else changes
+      const plannedTaskName = currentUpcomingItem.task_name;
+      const plannedCategory = currentUpcomingItem.category || '';
+      const plannedItemId = currentUpcomingItem.id;
+
+      // If there's a running task with a name, save it first (like Next Task)
+      if (taskInput.value.trim() && !isPaused) {
+        await logCurrentAsTask();
+      }
+
+      // Make sure categories dropdown is up to date first
+      await loadCategories();
+
+      // Fill in the planned task
+      taskInput.value = plannedTaskName;
+      // Set category (only if the category exists in the dropdown)
+      if (plannedCategory) {
+        const catOption = Array.from(categorySelect.options).find(o => o.value === plannedCategory);
+        if (catOption) {
+          categorySelect.value = plannedCategory;
+        } else {
+          categorySelect.value = plannedCategory;
+          if (categorySelect.value !== plannedCategory) {
+            categorySelect.value = '';
+          }
+        }
+      } else {
+        categorySelect.value = '';
+      }
+
+      // Mark this planned item as consumed so Coming Up advances to the next
+      dismissedUpcomingIds.add(plannedItemId);
+
+      // Reset timer for the new task
+      resetTimer();
+      lastActivityTime = Date.now();
+
+      // If paused, un-pause
+      if (isPaused) {
+        isPaused = false;
+        pauseBlockStartTime = null;
+        pauseStartedAt = null;
+        pauseBtn.textContent = 'Pause';
+        pauseBtn.classList.remove('active');
+        timerDisplay.classList.remove('paused');
+        statusDot.classList.remove('paused');
+        setUnpausedMode();
+      }
+
+      // Refresh the upcoming display immediately to show the next item
+      updateUpcomingDisplay();
+    });
+
+    // Helper — save the current task without resetting (used by Start button)
+    async function logCurrentAsTask() {
+      const task = taskInput.value.trim();
+      if (!task) return;
+      const category = categorySelect.value;
+      const endTime = new Date();
+      const duration = seconds;
+      const entry = {
+        task_name: task,
+        category: category || null,
+        started_at: startTime.toISOString(),
+        ended_at: endTime.toISOString(),
+        duration_secs: duration,
+        date: localDateString(startTime),
+        entry_type: 'task'
+      };
+      if (dbReady) {
+        try {
+          await dbClient.from('time_entries').insert([entry]);
+        } catch (e) { console.error('Task log failed', e); }
+      }
+    }
+
+    // DevTools shortcut
+    window.addEventListener('keydown', (e) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+        ipcRenderer.send('toggle-devtools-widget');
+      }
+    });
+  </script>
+</body>
+</html>

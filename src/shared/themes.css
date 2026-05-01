@@ -1,0 +1,58 @@
+/* ═══════════════════════════════════════════════════════════
+   DAYTIMER THEMES — 5 dark + 5 light
+   Shared between main window and widget
+   ═══════════════════════════════════════════════════════════ */
+
+/* DARK THEMES */
+:root[data-theme="mono-dark"] {
+  --bg: #0a0a0a; --surface: #141414; --surface2: #1d1d1d;
+  --border: #2a2a2a; --accent: #ffffff; --accent-soft: rgba(255,255,255,0.08);
+  --text: #f0f0f0; --text-dim: #777777; --danger: #ff5555;
+}
+:root[data-theme="teal-dark"] {
+  --bg: #0f0f13; --surface: #1a1a22; --surface2: #22222e;
+  --border: #2e2e3e; --accent: #6ee7b7; --accent-soft: rgba(110,231,183,0.12);
+  --text: #e8e8f0; --text-dim: #888899; --danger: #f87171;
+}
+:root[data-theme="sky-dark"] {
+  --bg: #0d1117; --surface: #161b22; --surface2: #21262d;
+  --border: #30363d; --accent: #58a6ff; --accent-soft: rgba(88,166,255,0.12);
+  --text: #e6edf3; --text-dim: #7d8590; --danger: #f85149;
+}
+:root[data-theme="rose-dark"] {
+  --bg: #130f12; --surface: #1e181c; --surface2: #292128;
+  --border: #3a2f36; --accent: #fb7185; --accent-soft: rgba(251,113,133,0.12);
+  --text: #f0e6ea; --text-dim: #998892; --danger: #ef4444;
+}
+:root[data-theme="amber-dark"] {
+  --bg: #13110e; --surface: #1f1b14; --surface2: #2a241b;
+  --border: #3a3224; --accent: #fbbf24; --accent-soft: rgba(251,191,36,0.12);
+  --text: #f5efdd; --text-dim: #918870; --danger: #f87171;
+}
+
+/* LIGHT THEMES */
+:root[data-theme="mono-light"] {
+  --bg: #fafaf7; --surface: #ffffff; --surface2: #f3f2ec;
+  --border: #e0ddd1; --accent: #0a0a0a; --accent-soft: rgba(10,10,10,0.08);
+  --text: #0a0a0a; --text-dim: #78716c; --danger: #dc2626;
+}
+:root[data-theme="teal-light"] {
+  --bg: #f6f9f7; --surface: #ffffff; --surface2: #eaf2ed;
+  --border: #d3e2d8; --accent: #0d9488; --accent-soft: rgba(13,148,136,0.1);
+  --text: #14201b; --text-dim: #6b7c76; --danger: #dc2626;
+}
+:root[data-theme="sky-light"] {
+  --bg: #f6f8fc; --surface: #ffffff; --surface2: #eaf0f9;
+  --border: #d3deee; --accent: #0369a1; --accent-soft: rgba(3,105,161,0.1);
+  --text: #14202d; --text-dim: #6b7c8e; --danger: #dc2626;
+}
+:root[data-theme="rose-light"] {
+  --bg: #fcf7f8; --surface: #ffffff; --surface2: #f6ebee;
+  --border: #ecd5dc; --accent: #be123c; --accent-soft: rgba(190,18,60,0.1);
+  --text: #241418; --text-dim: #857075; --danger: #dc2626;
+}
+:root[data-theme="amber-light"] {
+  --bg: #fcf9f4; --surface: #ffffff; --surface2: #f4ecdc;
+  --border: #e7d9ba; --accent: #b45309; --accent-soft: rgba(180,83,9,0.1);
+  --text: #241a0e; --text-dim: #85756b; --danger: #dc2626;
+}
