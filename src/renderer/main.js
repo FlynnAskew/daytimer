@@ -44,18 +44,28 @@ ipcRenderer.on('user-info', (event, user) => {
 // ── Theme definitions (for the picker UI) ──────────────────
 const THEMES = {
   dark: [
-    { id: 'teal-dark', name: 'Teal', bg: '#0f0f13', surf: '#1a1a22', acc: '#6ee7b7' },
-    { id: 'mono-dark', name: 'Mono', bg: '#0a0a0a', surf: '#141414', acc: '#ffffff' },
-    { id: 'sky-dark',  name: 'Sky',  bg: '#0d1117', surf: '#161b22', acc: '#58a6ff' },
-    { id: 'rose-dark', name: 'Rose', bg: '#130f12', surf: '#1e181c', acc: '#fb7185' },
-    { id: 'amber-dark',name: 'Amber',bg: '#13110e', surf: '#1f1b14', acc: '#fbbf24' }
+    { id: 'teal-dark',    name: 'Teal',    bg: '#0f0f13', surf: '#1a1a22', acc: '#6ee7b7' },
+    { id: 'mono-dark',    name: 'Mono',    bg: '#0a0a0a', surf: '#141414', acc: '#ffffff' },
+    { id: 'sky-dark',     name: 'Sky',     bg: '#0d1117', surf: '#161b22', acc: '#58a6ff' },
+    { id: 'rose-dark',    name: 'Rose',    bg: '#130f12', surf: '#1e181c', acc: '#fb7185' },
+    { id: 'amber-dark',   name: 'Amber',   bg: '#13110e', surf: '#1f1b14', acc: '#fbbf24' },
+    { id: 'purple-dark',  name: 'Purple',  bg: '#100f18', surf: '#1a1826', acc: '#a78bfa' },
+    { id: 'forest-dark',  name: 'Forest',  bg: '#0c1210', surf: '#151d19', acc: '#4ade80' },
+    { id: 'crimson-dark', name: 'Crimson', bg: '#110e0e', surf: '#1c1616', acc: '#ff6b6b' },
+    { id: 'slate-dark',   name: 'Slate',   bg: '#0d1117', surf: '#161b22', acc: '#94a3b8' },
+    { id: 'alpine-dark',  name: 'Alpine',  bg: '#091210', surf: '#111e1a', acc: '#2dd4bf' },
+    { id: 'sage-dark',    name: 'Sage',    bg: '#0f1410', surf: '#181f17', acc: '#86efac' }
   ],
   light: [
-    { id: 'teal-light', name: 'Teal', bg: '#f6f9f7', surf: '#ffffff', acc: '#0d9488' },
-    { id: 'mono-light', name: 'Mono', bg: '#fafaf7', surf: '#ffffff', acc: '#0a0a0a' },
-    { id: 'sky-light',  name: 'Sky',  bg: '#f6f8fc', surf: '#ffffff', acc: '#0369a1' },
-    { id: 'rose-light', name: 'Rose', bg: '#fcf7f8', surf: '#ffffff', acc: '#be123c' },
-    { id: 'amber-light',name: 'Amber',bg: '#fcf9f4', surf: '#ffffff', acc: '#b45309' }
+    { id: 'teal-light',   name: 'Teal',    bg: '#f6f9f7', surf: '#ffffff', acc: '#0d9488' },
+    { id: 'mono-light',   name: 'Mono',    bg: '#fafaf7', surf: '#ffffff', acc: '#0a0a0a' },
+    { id: 'sky-light',    name: 'Sky',     bg: '#f6f8fc', surf: '#ffffff', acc: '#0369a1' },
+    { id: 'rose-light',   name: 'Rose',    bg: '#fcf7f8', surf: '#ffffff', acc: '#be123c' },
+    { id: 'amber-light',  name: 'Amber',   bg: '#fcf9f4', surf: '#ffffff', acc: '#b45309' },
+    { id: 'purple-light', name: 'Purple',  bg: '#faf8ff', surf: '#ffffff', acc: '#7c3aed' },
+    { id: 'forest-light', name: 'Forest',  bg: '#f4fbf6', surf: '#ffffff', acc: '#16a34a' },
+    { id: 'alpine-light', name: 'Alpine',  bg: '#f0faf8', surf: '#ffffff', acc: '#0f766e' },
+    { id: 'sage-light',   name: 'Sage',    bg: '#f5faf5', surf: '#ffffff', acc: '#4d7c52' }
   ]
 };
 
