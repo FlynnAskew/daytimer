@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DayTimer — Signed In</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: #0f0f13;
+  color: #e8e8ec;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 24px;
+}
+.card {
+  background: #1a1a20;
+  border: 1px solid #2a2a32;
+  border-radius: 16px;
+  padding: 48px 40px;
+  max-width: 440px;
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+.icon {
+  width: 64px; height: 64px;
+  background: #6ee7b7;
+  border-radius: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 24px;
+  font-size: 32px;
+}
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-bottom: 12px;
+}
+p {
+  color: #888899;
+  font-size: 14px;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+.email {
+  color: #6ee7b7;
+  font-weight: 500;
+  font-family: 'DM Mono', ui-monospace, monospace;
+  font-size: 13px;
+  margin-top: 16px;
+  word-break: break-all;
+}
+.close-hint {
+  margin-top: 24px;
+  font-size: 12px;
+  color: #555562;
+}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="icon">✓</div>
+  <h1>Signed in to DayTimer</h1>
+  <p>Return to the DayTimer app — you should already be logged in.</p>
+  <div class="email" id="email"></div>
+  <div class="close-hint">You can close this tab.</div>
+</div>
+
+<script>
+// Forward the OAuth callback to the desktop app via daytimer:// protocol
+(function() {
+  const hash = window.location.hash;
+  const search = window.location.search;
+
+  // Build the daytimer:// URL with the same query and hash params
+  const deepLink = 'daytimer://auth-callback' + search + hash;
+
+  // Try to extract email for display
+  try {
+    const params = new URLSearchParams(hash.substring(1) || search.substring(1));
+    const idToken = params.get('id_token');
+    if (idToken) {
+      const payload = JSON.parse(atob(idToken.split('.')[1]));
+      if (payload.email) {
+        document.getElementById('email').textContent = payload.email;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
+  // Trigger the deep link to open/focus the desktop app
+  setTimeout(() => {
+    window.location.href = deepLink;
+  }, 600);
+})();
+</script>
+</body>
+</html>

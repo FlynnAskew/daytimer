@@ -103,11 +103,13 @@ function createWidget() {
     y: 40,
     frame: false,
     transparent: true,
-    backgroundColor: '#00000000',  // Fully transparent — fixes the outline issue
+    backgroundColor: '#00000000',
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: false,
-    hasShadow: false,              // Remove Windows drop shadow that creates border
+    hasShadow: false,
+    thickFrame: false,         // Windows-only — removes the 1px border
+    roundedCorners: false,     // Disable Windows-style rounded corners (we draw our own)
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false

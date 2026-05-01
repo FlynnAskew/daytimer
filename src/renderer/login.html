@@ -318,9 +318,11 @@ msBtn.addEventListener('click', async () => {
   setStatus('<span class="spinner"></span> Opening Microsoft sign-in in your browser…');
 
   try {
-    // Build OAuth URL — Supabase will handle Azure auth and redirect back to daytimer://
-    const redirectTo = 'daytimer://auth-callback';
-    const oauthUrl = `${supabaseConfig.url}/auth/v1/authorize?provider=azure&redirect_to=${encodeURIComponent(redirectTo)}`;
+    // Build OAuth URL — Supabase redirects to our GitHub Pages page,
+    // which then forwards via daytimer:// deep link to the app.
+    // This way users see a friendly "Signed in" page instead of a hung tab.
+    const redirectTo = 'https://flynnaskew.github.io/daytimer/auth-callback.html';
+    const oauthUrl = `${supabaseConfig.url}/auth/v1/authorize?provider=azure&redirect_to=${encodeURIComponent(redirectTo)}&scopes=${encodeURIComponent('openid email profile User.Read')}`;
 
     // Open in default browser
     shell.openExternal(oauthUrl);
