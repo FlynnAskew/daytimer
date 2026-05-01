@@ -1,0 +1,367 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="teal-dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DayTimer — Sign In</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="../shared/themes.css">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  font-family: 'DM Sans', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.login-card {
+  width: 380px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 36px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.logo-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 32px;
+}
+
+.logo-icon {
+  width: 48px; height: 48px;
+  background: var(--accent);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: var(--bg);
+  flex-shrink: 0;
+}
+
+.logo-text h1 {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.logo-text p {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 16px;
+}
+
+/* Microsoft SSO button */
+.ms-btn {
+  width: 100%;
+  background: #2f2f2f;
+  border: 1px solid #444;
+  color: #fff;
+  padding: 13px 20px;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: background 0.15s, transform 0.1s;
+  margin-bottom: 24px;
+}
+
+.ms-btn:hover { background: #3a3a3a; }
+.ms-btn:active { transform: scale(0.98); }
+.ms-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.ms-logo {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
+.divider::before, .divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Status message */
+.status {
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+  min-height: 18px;
+  margin-top: 16px;
+}
+
+.status.error { color: var(--danger); }
+.status.success { color: var(--accent); }
+
+.spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  vertical-align: middle;
+  margin-right: 6px;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.footer-note {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-dim);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.footer-note strong { color: var(--text); }
+
+/* Loading overlay */
+.loading-overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  z-index: 100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s;
+}
+
+.loading-overlay.visible {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.loading-logo {
+  width: 56px; height: 56px;
+  background: var(--accent);
+  border-radius: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 28px;
+  color: var(--bg);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+.loading-text {
+  font-size: 14px;
+  color: var(--text-dim);
+}
+</style>
+</head>
+<body>
+
+<div class="login-card">
+  <div class="logo-row">
+    <div class="logo-icon">⏱</div>
+    <div class="logo-text">
+      <h1>DayTimer</h1>
+      <p>Track your time. Own your day.</p>
+    </div>
+  </div>
+
+  <div class="section-title">Sign in to continue</div>
+
+  <button class="ms-btn" id="msBtn">
+    <!-- Microsoft logo SVG -->
+    <svg class="ms-logo" viewBox="0 0 21 21" xmlns="http://www.w3.org/2000/svg">
+      <rect x="1" y="1" width="9" height="9" fill="#f25022"/>
+      <rect x="11" y="1" width="9" height="9" fill="#7fba00"/>
+      <rect x="1" y="11" width="9" height="9" fill="#00a4ef"/>
+      <rect x="11" y="11" width="9" height="9" fill="#ffb900"/>
+    </svg>
+    Sign in with Microsoft
+  </button>
+
+  <div class="status" id="statusMsg"></div>
+
+  <div class="footer-note">
+    Access is restricted to <strong>@howleruk.com</strong> Microsoft accounts.<br>
+    Contact your administrator if you need access.
+  </div>
+</div>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-logo">⏱</div>
+  <div class="loading-text">Signing you in…</div>
+</div>
+
+<!-- Supabase library -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<script>
+const { ipcRenderer } = require('electron');
+
+// Load Supabase config
+let supabaseConfig = { url: '', anonKey: '' };
+try {
+  supabaseConfig = require('../supabase-config.js');
+} catch (e) {
+  console.warn('supabase-config.js not found');
+}
+
+let dbClient = null;
+try {
+  if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_')) {
+    dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true
+      }
+    });
+  }
+} catch (e) { console.error(e); }
+
+const msBtn = document.getElementById('msBtn');
+const statusMsg = document.getElementById('statusMsg');
+const loadingOverlay = document.getElementById('loadingOverlay');
+
+function setStatus(msg, type = '') {
+  statusMsg.className = 'status ' + type;
+  statusMsg.innerHTML = msg;
+}
+
+function showLoading() {
+  loadingOverlay.classList.add('visible');
+}
+
+// Apply saved theme
+(async () => {
+  try {
+    const theme = await ipcRenderer.invoke('get-theme');
+    document.documentElement.setAttribute('data-theme', theme || 'teal-dark');
+  } catch (e) {}
+})();
+
+// Check if already logged in
+(async () => {
+  if (!dbClient) {
+    setStatus('Supabase not configured — check your config file.', 'error');
+    return;
+  }
+
+  setStatus('<span class="spinner"></span> Checking session…');
+  try {
+    const { data: { session } } = await dbClient.auth.getSession();
+    if (session) {
+      // Already logged in — go straight to app
+      showLoading();
+      setTimeout(() => ipcRenderer.send('login-success', session.user), 500);
+    } else {
+      setStatus('');
+    }
+  } catch (e) {
+    setStatus('');
+  }
+})();
+
+// Microsoft SSO sign-in
+msBtn.addEventListener('click', async () => {
+  if (!dbClient) {
+    setStatus('Supabase not configured.', 'error');
+    return;
+  }
+
+  msBtn.disabled = true;
+  setStatus('<span class="spinner"></span> Opening Microsoft login…');
+
+  try {
+    // Use Supabase's Azure OAuth provider
+    const { data, error } = await dbClient.auth.signInWithOAuth({
+      provider: 'azure',
+      options: {
+        scopes: 'email profile openid',
+        redirectTo: supabaseConfig.url + '/auth/v1/callback'
+      }
+    });
+
+    if (error) throw error;
+
+    // The OAuth flow will open a browser window — listen for the callback
+    // via the main process which handles the deep link
+    setStatus('<span class="spinner"></span> Complete sign-in in your browser…');
+
+    // Listen for auth state change (callback from OAuth)
+    dbClient.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'SIGNED_IN' && session) {
+        // Validate domain
+        const email = session.user.email || '';
+        if (!email.endsWith('@howleruk.com')) {
+          await dbClient.auth.signOut();
+          setStatus('Access restricted to @howleruk.com accounts.', 'error');
+          msBtn.disabled = false;
+          return;
+        }
+        showLoading();
+        setTimeout(() => ipcRenderer.send('login-success', session.user), 600);
+      }
+    });
+
+  } catch (e) {
+    console.error('Sign-in error:', e);
+    setStatus('Sign-in failed: ' + e.message, 'error');
+    msBtn.disabled = false;
+  }
+});
+
+// DevTools
+window.addEventListener('keydown', (e) => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+    ipcRenderer.send('toggle-devtools-login');
+  }
+});
+</script>
+</body>
+</html>

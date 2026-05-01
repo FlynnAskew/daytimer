@@ -346,7 +346,7 @@ body {
     try {
       supabaseConfig = require('../supabase-config.js');
     } catch (e) {
-      console.warn('supabase-config.js missing — see supabase-config.example.js');
+      console.warn('supabase-config.js missing');
     }
 
     // ── Supabase ──────────────────────────────────────────────
@@ -355,7 +355,9 @@ body {
     try {
       if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
           supabaseConfig.anonKey && !supabaseConfig.anonKey.includes('YOUR_')) {
-        dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+        dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+          auth: { persistSession: true, autoRefreshToken: true }
+        });
         dbReady = true;
       }
     } catch (e) { console.error(e); }

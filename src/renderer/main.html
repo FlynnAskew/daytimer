@@ -407,11 +407,16 @@
       <div class="settings-body">
 
         <div class="settings-section">
-          <div class="section-title">Profile</div>
-          <div class="section-subtitle">Account login & multi-user support coming in a future update.</div>
+          <div class="section-title">Account</div>
           <div class="field-row">
-            <div class="field-label">Your name</div>
-            <input type="text" class="field-input" id="profileName" placeholder="Flynn Williams">
+            <div class="field-label">Signed in as</div>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <span id="profileEmail" style="font-size:13px;color:var(--text);">—</span>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label"></div>
+            <button class="modal-btn" id="logoutBtn" style="font-size:12px;border-color:var(--danger);color:var(--danger);">Sign out</button>
           </div>
         </div>
 

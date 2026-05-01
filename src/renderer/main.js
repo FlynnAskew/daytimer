@@ -4,26 +4,42 @@
 
 const { ipcRenderer } = require('electron');
 
-// Load Supabase config — falls back to placeholder if file doesn't exist
+// Load Supabase config
 let supabaseConfig = { url: 'YOUR_SUPABASE_PROJECT_URL', anonKey: 'YOUR_SUPABASE_ANON_KEY' };
 try {
   supabaseConfig = require('../supabase-config.js');
 } catch (e) {
-  console.warn('supabase-config.js not found — copy supabase-config.example.js and add your keys');
+  console.warn('supabase-config.js not found');
 }
 
-// ── Initialise Supabase ────────────────────────────────────
+// ── Initialise Supabase with persistent session ───────────────
 let dbClient = null;
 let dbReady = false;
+let currentUser = null;
+
 try {
   if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
       supabaseConfig.anonKey && !supabaseConfig.anonKey.includes('YOUR_')) {
-    dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey);
+    dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
+      auth: { persistSession: true, autoRefreshToken: true }
+    });
     dbReady = true;
   }
 } catch (e) {
   console.error('Supabase init failed:', e);
 }
+
+// Receive user info from main process
+ipcRenderer.on('user-info', (event, user) => {
+  currentUser = user;
+});
+
+// Get current user on load
+(async () => {
+  try {
+    currentUser = await ipcRenderer.invoke('get-current-user');
+  } catch (e) {}
+})();
 
 // ── Theme definitions (for the picker UI) ──────────────────
 const THEMES = {
@@ -1619,7 +1635,36 @@ $('customApply').addEventListener('click', () => {
 function loadSettings() {
   renderThemePickers();
   renderCategoryList();
-  // Reset widget position button (one-time wire-up)
+
+  // Show current user's email
+  if ($('profileEmail') && currentUser) {
+    $('profileEmail').textContent = currentUser.email || '—';
+  }
+
+  // Logout button
+  const logoutBtn = $('logoutBtn');
+  if (logoutBtn && !logoutBtn.dataset.wired) {
+    logoutBtn.addEventListener('click', () => {
+      openModal(`
+        <div class="modal-title">Sign out?</div>
+        <div style="color:var(--text-dim);font-size:13px;">You'll need to sign in again next time you open DayTimer.</div>
+        <div class="modal-footer">
+          <button class="modal-btn" onclick="closeModal()">Cancel</button>
+          <button class="modal-btn danger" id="confirmLogoutBtn">Sign out</button>
+        </div>
+      `);
+      $('confirmLogoutBtn').addEventListener('click', async () => {
+        if (dbReady) {
+          try { await dbClient.auth.signOut(); } catch (e) {}
+        }
+        closeModal();
+        ipcRenderer.send('logout');
+      });
+    });
+    logoutBtn.dataset.wired = 'true';
+  }
+
+  // Reset widget position button
   const resetBtn = $('resetWidgetBtn');
   if (resetBtn && !resetBtn.dataset.wired) {
     resetBtn.addEventListener('click', () => {
@@ -1629,7 +1674,8 @@ function loadSettings() {
     });
     resetBtn.dataset.wired = 'true';
   }
-  // App version & update check
+
+  // Version & updates
   loadAppVersion();
   const updBtn = $('checkUpdateBtn');
   if (updBtn && !updBtn.dataset.wired) {

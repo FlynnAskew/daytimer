@@ -1,23 +1,57 @@
-const { app, BrowserWindow, ipcMain, screen, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, dialog, shell } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
 
-// Auto-updater (only when running as packaged app, not in dev)
+// Auto-updater (only in packaged builds)
 let autoUpdater = null;
 if (app.isPackaged) {
   try {
     autoUpdater = require('electron-updater').autoUpdater;
   } catch (e) {
-    console.log('electron-updater not available — auto-update disabled');
+    console.log('electron-updater not available');
   }
 }
 
 const store = new Store();
 
+let loginWindow  = null;
 let widgetWindow = null;
-let mainWindow = null;
+let mainWindow   = null;
+let currentUser  = null;
 
-// ── Widget Window (floating timer) ──────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  LOGIN WINDOW
+// ══════════════════════════════════════════════════════════════
+function createLoginWindow() {
+  loginWindow = new BrowserWindow({
+    width: 480,
+    height: 600,
+    resizable: false,
+    frame: true,
+    title: 'DayTimer — Sign In',
+    center: true,
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false
+    }
+  });
+
+  loginWindow.loadFile(path.join(__dirname, '../renderer/login.html'));
+  loginWindow.setMenuBarVisibility(false);
+
+  loginWindow.on('closed', () => {
+    loginWindow = null;
+    // If the user closed the login window without signing in,
+    // and there's no other window open, quit
+    if (!widgetWindow && !mainWindow) {
+      app.quit();
+    }
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  WIDGET WINDOW
+// ══════════════════════════════════════════════════════════════
 function createWidget() {
   const primary = screen.getPrimaryDisplay();
   const { width: sw } = primary.workAreaSize;
@@ -29,9 +63,11 @@ function createWidget() {
     y: 40,
     frame: false,
     transparent: true,
+    backgroundColor: '#00000000',  // Fully transparent — fixes the outline issue
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: false,
+    hasShadow: false,              // Remove Windows drop shadow that creates border
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -40,12 +76,11 @@ function createWidget() {
 
   widgetWindow.loadFile(path.join(__dirname, '../renderer/widget.html'));
 
-  // Restore saved position only if it's still on a visible display
+  // Restore saved position only if on a visible display
   const pos = store.get('widgetPosition');
   if (pos && isPositionOnVisibleDisplay(pos.x, pos.y)) {
     widgetWindow.setPosition(pos.x, pos.y);
   } else {
-    // Default to primary display top-right
     widgetWindow.setPosition(sw - 340, 40);
   }
 
@@ -55,19 +90,18 @@ function createWidget() {
   });
 
   widgetWindow.on('closed', () => { widgetWindow = null; });
-}
 
-// Check whether (x, y) is inside any connected display
-function isPositionOnVisibleDisplay(x, y) {
-  const displays = screen.getAllDisplays();
-  return displays.some(d => {
-    const b = d.bounds;
-    return x >= b.x && x < b.x + b.width &&
-           y >= b.y && y < b.y + b.height;
+  // Pass user info to widget renderer
+  widgetWindow.webContents.once('did-finish-load', () => {
+    if (currentUser) {
+      widgetWindow.webContents.send('user-info', currentUser);
+    }
   });
 }
 
-// ── Main App Window ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  MAIN APP WINDOW
+// ══════════════════════════════════════════════════════════════
 function createMainWindow() {
   mainWindow = new BrowserWindow({
     width: 1280,
@@ -84,30 +118,49 @@ function createMainWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '../renderer/main.html'));
   mainWindow.setMenuBarVisibility(false);
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    if (currentUser) {
+      mainWindow.webContents.send('user-info', currentUser);
+    }
+  });
+
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
-// ── App Lifecycle ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  HELPERS
+// ══════════════════════════════════════════════════════════════
+function isPositionOnVisibleDisplay(x, y) {
+  return screen.getAllDisplays().some(d => {
+    const b = d.bounds;
+    return x >= b.x && x < b.x + b.width &&
+           y >= b.y && y < b.y + b.height;
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  APP LIFECYCLE
+// ══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
-  createWidget();
+  // Always start with login
+  createLoginWindow();
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWidget();
+    if (BrowserWindow.getAllWindows().length === 0) {
+      if (currentUser) createWidget();
+      else createLoginWindow();
+    }
   });
 
-  // Check for updates 5 seconds after launch (only in packaged builds)
+  // Auto-update check
   if (autoUpdater) {
     setTimeout(() => {
-      try {
-        autoUpdater.checkForUpdatesAndNotify();
-      } catch (e) {
-        console.error('Update check failed:', e);
-      }
-    }, 5000);
+      try { autoUpdater.checkForUpdatesAndNotify(); } catch (e) {}
+    }, 10000); // 10s after launch
 
-    // Check again every 6 hours while app is running
     setInterval(() => {
-      try { autoUpdater.checkForUpdatesAndNotify(); } catch (e) { /* ignore */ }
+      try { autoUpdater.checkForUpdatesAndNotify(); } catch (e) {}
     }, 6 * 60 * 60 * 1000);
   }
 });
@@ -116,55 +169,45 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-// ── Auto-updater event handlers ──────────────────────────────
-if (autoUpdater) {
-  autoUpdater.on('update-available', (info) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('update-available', info);
-    }
-  });
+// Handle OAuth callback URLs (deep links)
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  // The OAuth callback will be handled by Supabase's client-side listener
+  // Just ensure the login window is focused if it exists
+  if (loginWindow) loginWindow.focus();
+});
 
-  autoUpdater.on('update-downloaded', (info) => {
-    if (mainWindow) {
-      mainWindow.webContents.send('update-downloaded', info);
-    }
-    // Show dialog asking user to restart
-    dialog.showMessageBox({
-      type: 'info',
-      buttons: ['Restart now', 'Later'],
-      title: 'DayTimer update',
-      message: `Version ${info.version} has been downloaded.`,
-      detail: 'Restart DayTimer to apply the update.'
-    }).then(({ response }) => {
-      if (response === 0) autoUpdater.quitAndInstall();
-    });
-  });
+// ══════════════════════════════════════════════════════════════
+//  IPC: LOGIN FLOW
+// ══════════════════════════════════════════════════════════════
+ipcMain.on('login-success', (event, user) => {
+  currentUser = user;
+  store.set('lastUser', user);
 
-  autoUpdater.on('error', (err) => {
-    console.error('Update error:', err);
-  });
-}
-
-// IPC: trigger manual update check
-ipcMain.handle('check-for-updates', async () => {
-  if (!autoUpdater) return { available: false, dev: true };
-  try {
-    const result = await autoUpdater.checkForUpdates();
-    return {
-      available: result && result.updateInfo && result.updateInfo.version !== app.getVersion(),
-      currentVersion: app.getVersion(),
-      latestVersion: result?.updateInfo?.version
-    };
-  } catch (e) {
-    return { error: e.message };
+  // Close login window and open the app
+  if (loginWindow) {
+    loginWindow.close();
+    loginWindow = null;
   }
+
+  createWidget();
 });
 
-ipcMain.handle('get-app-version', () => {
-  return app.getVersion();
+ipcMain.on('logout', async () => {
+  currentUser = null;
+  store.delete('lastUser');
+
+  // Close all windows
+  if (widgetWindow) { widgetWindow.close(); widgetWindow = null; }
+  if (mainWindow)   { mainWindow.close();   mainWindow = null; }
+
+  // Re-open login
+  createLoginWindow();
 });
 
-// ── IPC: Widget minimise/expand ──────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  IPC: WIDGET
+// ══════════════════════════════════════════════════════════════
 ipcMain.on('widget-minimise', () => {
   if (widgetWindow) widgetWindow.setSize(320, 48, true);
 });
@@ -173,24 +216,12 @@ ipcMain.on('widget-expand', () => {
   if (widgetWindow) widgetWindow.setSize(320, 310, true);
 });
 
-// Widget asks for a specific height based on whether Coming Up is visible
 ipcMain.on('widget-resize', (event, height) => {
-  if (widgetWindow && !isMinimised()) {
+  if (widgetWindow) {
     const [w] = widgetWindow.getSize();
-    widgetWindow.setSize(w, Math.round(height), true);
+    const [, h] = widgetWindow.getSize();
+    if (h > 60) widgetWindow.setSize(w, Math.max(200, Math.round(height)), true);
   }
-});
-
-function isMinimised() {
-  if (!widgetWindow) return false;
-  const [, h] = widgetWindow.getSize();
-  return h < 60;
-}
-
-// ── IPC: Open main window ────────────────────────────────────
-ipcMain.on('open-main', () => {
-  if (!mainWindow) createMainWindow();
-  else { mainWindow.show(); mainWindow.focus(); }
 });
 
 ipcMain.on('reset-widget-position', () => {
@@ -200,7 +231,47 @@ ipcMain.on('reset-widget-position', () => {
   store.set('widgetPosition', { x: sw - 340, y: 40 });
 });
 
-// ── IPC: Toggle DevTools ─────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+//  IPC: MAIN APP
+// ══════════════════════════════════════════════════════════════
+ipcMain.on('open-main', () => {
+  if (!mainWindow) createMainWindow();
+  else { mainWindow.show(); mainWindow.focus(); }
+});
+
+ipcMain.on('categories-updated', () => {
+  if (widgetWindow) widgetWindow.webContents.send('refresh-categories');
+});
+
+ipcMain.on('theme-changed', (event, theme) => {
+  store.set('theme', theme);
+  if (widgetWindow) widgetWindow.webContents.send('theme-changed', theme);
+  if (loginWindow)  loginWindow.webContents.send('theme-changed', theme);
+});
+
+ipcMain.handle('get-theme', () => store.get('theme', 'teal-dark'));
+
+ipcMain.handle('get-current-user', () => currentUser);
+
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('check-for-updates', async () => {
+  if (!autoUpdater) return { available: false, dev: true };
+  try {
+    const result = await autoUpdater.checkForUpdates();
+    return {
+      available: result?.updateInfo?.version !== app.getVersion(),
+      currentVersion: app.getVersion(),
+      latestVersion: result?.updateInfo?.version
+    };
+  } catch (e) {
+    return { error: e.message };
+  }
+});
+
+// ══════════════════════════════════════════════════════════════
+//  IPC: DEVTOOLS
+// ══════════════════════════════════════════════════════════════
 ipcMain.on('toggle-devtools-widget', () => {
   if (widgetWindow) widgetWindow.webContents.toggleDevTools({ mode: 'detach' });
 });
@@ -209,18 +280,28 @@ ipcMain.on('toggle-devtools-main', () => {
   if (mainWindow) mainWindow.webContents.toggleDevTools({ mode: 'detach' });
 });
 
-// ── IPC: Notify widget when categories change ────────────────
-ipcMain.on('categories-updated', () => {
-  if (widgetWindow) widgetWindow.webContents.send('refresh-categories');
+ipcMain.on('toggle-devtools-login', () => {
+  if (loginWindow) loginWindow.webContents.toggleDevTools({ mode: 'detach' });
 });
 
-// ── IPC: Notify widget when theme changes ────────────────────
-ipcMain.on('theme-changed', (event, theme) => {
-  store.set('theme', theme);
-  if (widgetWindow) widgetWindow.webContents.send('theme-changed', theme);
-});
+// ══════════════════════════════════════════════════════════════
+//  AUTO-UPDATER EVENTS
+// ══════════════════════════════════════════════════════════════
+if (autoUpdater) {
+  autoUpdater.on('update-downloaded', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-downloaded', info);
+    dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      title: 'DayTimer update ready',
+      message: `Version ${info.version} is ready to install.`,
+      detail: 'Restart DayTimer to apply the update.'
+    }).then(({ response }) => {
+      if (response === 0) autoUpdater.quitAndInstall();
+    });
+  });
 
-// ── IPC: Get saved theme ─────────────────────────────────────
-ipcMain.handle('get-theme', () => {
-  return store.get('theme', 'teal-dark');
-});
+  autoUpdater.on('error', (err) => {
+    console.error('Updater error:', err);
+  });
+}

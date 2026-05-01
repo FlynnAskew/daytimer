@@ -28,13 +28,12 @@ jobs:
         shell: pwsh
         run: |
           $content = @"
-          // Auto-generated at build time from GitHub Secrets.
-          const SUPABASE_CONFIG = {
-            url: '$env:SUPABASE_URL',
-            anonKey: '$env:SUPABASE_ANON_KEY'
-          };
-          module.exports = SUPABASE_CONFIG;
-          "@
+const SUPABASE_CONFIG = {
+  url: '$env:SUPABASE_URL',
+  anonKey: '$env:SUPABASE_ANON_KEY'
+};
+module.exports = SUPABASE_CONFIG;
+"@
           Set-Content -Path "src/supabase-config.js" -Value $content
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
