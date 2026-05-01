@@ -26,18 +26,12 @@ jobs:
 
       - name: Inject Supabase config from secrets
         shell: pwsh
-        run: |
-          $content = @"
-const SUPABASE_CONFIG = {
-  url: '$env:SUPABASE_URL',
-  anonKey: '$env:SUPABASE_ANON_KEY'
-};
-module.exports = SUPABASE_CONFIG;
-"@
-          Set-Content -Path "src/supabase-config.js" -Value $content
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          $cfg = "const SUPABASE_CONFIG = { url: '$env:SUPABASE_URL', anonKey: '$env:SUPABASE_ANON_KEY' }; module.exports = SUPABASE_CONFIG;"
+          Set-Content -Path "src/supabase-config.js" -Value $cfg
 
       - name: Inject Microsoft config (optional)
         shell: pwsh
