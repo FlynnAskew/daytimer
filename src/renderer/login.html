@@ -242,7 +242,7 @@ body {
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <script>
-const { ipcRenderer } = require('electron');
+const { ipcRenderer, shell } = require('electron');
 
 // Load Supabase config
 let supabaseConfig = { url: '', anonKey: '' };
@@ -259,8 +259,7 @@ try {
       auth: {
         persistSession: true,
         autoRefreshToken: true,
-        detectSessionInUrl: true,
-        flowType: 'implicit'
+        detectSessionInUrl: false
       }
     });
   }
@@ -287,23 +286,6 @@ function showLoading() {
   } catch (e) {}
 })();
 
-// Auth state listener — fires when sign-in completes in popup
-if (dbClient) {
-  dbClient.auth.onAuthStateChange(async (event, session) => {
-    if (event === 'SIGNED_IN' && session) {
-      const email = session.user.email || '';
-      if (!email.endsWith('@howleruk.com')) {
-        await dbClient.auth.signOut();
-        setStatus('Access restricted to @howleruk.com accounts.', 'error');
-        msBtn.disabled = false;
-        return;
-      }
-      showLoading();
-      setTimeout(() => ipcRenderer.send('login-success', session.user), 500);
-    }
-  });
-}
-
 // Check if already logged in
 (async () => {
   if (!dbClient) {
@@ -324,7 +306,7 @@ if (dbClient) {
   }
 })();
 
-// Microsoft SSO sign-in
+// Microsoft SSO sign-in via external browser
 msBtn.addEventListener('click', async () => {
   if (!dbClient) {
     setStatus('Supabase not configured.', 'error');
@@ -332,23 +314,63 @@ msBtn.addEventListener('click', async () => {
   }
 
   msBtn.disabled = true;
-  setStatus('<span class="spinner"></span> Opening Microsoft sign-in…');
+  setStatus('<span class="spinner"></span> Opening Microsoft sign-in in your browser…');
 
   try {
-    const { data, error } = await dbClient.auth.signInWithOAuth({
-      provider: 'azure',
-      options: {
-        scopes: 'email profile openid',
-        skipBrowserRedirect: false
-      }
+    // Build OAuth URL — Supabase will handle Azure auth and redirect back to daytimer://
+    const redirectTo = 'daytimer://auth-callback';
+    const oauthUrl = `${supabaseConfig.url}/auth/v1/authorize?provider=azure&redirect_to=${encodeURIComponent(redirectTo)}`;
+
+    // Open in default browser
+    shell.openExternal(oauthUrl);
+
+    setStatus('<span class="spinner"></span> Complete sign-in in your browser. The app will refocus when done.');
+  } catch (e) {
+    console.error('Sign-in error:', e);
+    setStatus('Sign-in failed: ' + e.message, 'error');
+    msBtn.disabled = false;
+  }
+});
+
+// Listen for deep-link callback from main process
+ipcRenderer.on('oauth-callback', async (event, url) => {
+  console.log('Got OAuth callback:', url);
+  setStatus('<span class="spinner"></span> Completing sign-in…');
+
+  try {
+    // Parse the access token & refresh token from the URL fragment
+    const urlObj = new URL(url);
+    // Tokens come in the hash fragment: daytimer://auth-callback#access_token=...&refresh_token=...
+    const hash = urlObj.hash.substring(1); // remove leading #
+    const params = new URLSearchParams(hash);
+    const accessToken = params.get('access_token');
+    const refreshToken = params.get('refresh_token');
+
+    if (!accessToken || !refreshToken) {
+      throw new Error('No tokens in callback URL');
+    }
+
+    // Set the session on the Supabase client
+    const { data, error } = await dbClient.auth.setSession({
+      access_token: accessToken,
+      refresh_token: refreshToken
     });
 
     if (error) throw error;
+    if (!data.session) throw new Error('Session not created');
 
-    setStatus('<span class="spinner"></span> Complete sign-in in the popup window…');
+    const email = data.session.user.email || '';
+    if (!email.endsWith('@howleruk.com')) {
+      await dbClient.auth.signOut();
+      setStatus('Access restricted to @howleruk.com accounts.', 'error');
+      msBtn.disabled = false;
+      return;
+    }
 
+    showLoading();
+    setTimeout(() => ipcRenderer.send('login-success', data.session.user), 500);
   } catch (e) {
-    console.error('Sign-in error:', e);
+    console.error('Callback handling failed:', e);
     setStatus('Sign-in failed: ' + e.message, 'error');
     msBtn.disabled = false;
   }

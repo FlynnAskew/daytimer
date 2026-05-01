@@ -19,6 +19,48 @@ let widgetWindow = null;
 let mainWindow   = null;
 let currentUser  = null;
 
+// ── Register custom protocol for OAuth callbacks ──────────────
+// This makes Windows recognise daytimer:// links and open this app
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('daytimer', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('daytimer');
+}
+
+// Single instance lock — required for protocol handler to forward to existing window
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine) => {
+    // Someone tried to run a second instance — focus existing window
+    if (loginWindow) {
+      if (loginWindow.isMinimized()) loginWindow.restore();
+      loginWindow.focus();
+    }
+    // Look for a daytimer:// URL in the command line args (Windows)
+    const url = commandLine.find(arg => arg.startsWith('daytimer://'));
+    if (url) handleDeepLink(url);
+  });
+}
+
+// macOS deep link handler
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  handleDeepLink(url);
+});
+
+function handleDeepLink(url) {
+  console.log('Deep link received:', url);
+  // Pass the full URL to the login window
+  if (loginWindow && !loginWindow.isDestroyed()) {
+    loginWindow.webContents.send('oauth-callback', url);
+    loginWindow.focus();
+  }
+}
+
 // ══════════════════════════════════════════════════════════════
 //  LOGIN WINDOW
 // ══════════════════════════════════════════════════════════════
@@ -32,30 +74,12 @@ function createLoginWindow() {
     center: true,
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false,
-      webviewTag: true
+      contextIsolation: false
     }
   });
 
   loginWindow.loadFile(path.join(__dirname, '../renderer/login.html'));
   loginWindow.setMenuBarVisibility(false);
-
-  // Handle OAuth popup windows (Microsoft sign-in opens in a child window)
-  loginWindow.webContents.setWindowOpenHandler(({ url }) => {
-    return {
-      action: 'allow',
-      overrideBrowserWindowOptions: {
-        width: 600,
-        height: 750,
-        title: 'Sign in with Microsoft',
-        center: true,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true
-        }
-      }
-    };
-  });
 
   loginWindow.on('closed', () => {
     loginWindow = null;
