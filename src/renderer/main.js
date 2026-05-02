@@ -70,19 +70,28 @@ const THEMES = {
 };
 
 const CATEGORY_COLOURS = [
-  '#6ee7b7', '#58a6ff', '#a78bfa', '#fbbf24',
-  '#fb923c', '#fb7185', '#f87171', '#4ade80',
-  '#22d3ee', '#e879f9'
+  // Reds
+  '#ef4444', '#f87171', '#fca5a5',
+  // Oranges
+  '#f97316', '#fb923c', '#fdba74',
+  // Yellows / Ambers
+  '#f59e0b', '#fbbf24', '#fde68a',
+  // Greens
+  '#22c55e', '#4ade80', '#6ee7b7',
+  // Teals / Cyans
+  '#14b8a6', '#2dd4bf', '#22d3ee',
+  // Blues
+  '#3b82f6', '#58a6ff', '#93c5fd',
+  // Purples / Violets
+  '#8b5cf6', '#a78bfa', '#c4b5fd',
+  // Pinks
+  '#ec4899', '#f472b6', '#e879f9'
 ];
 
 const DEFAULT_CATEGORIES = [
-  { name: 'Calling',           colour: '#6ee7b7', sort_order: 1 },
-  { name: 'Teams Meetings',    colour: '#58a6ff', sort_order: 2 },
-  { name: 'Internal Meetings', colour: '#a78bfa', sort_order: 3 },
-  { name: 'Quoting',           colour: '#fbbf24', sort_order: 4 },
-  { name: 'Emails/Admin',      colour: '#fb923c', sort_order: 5 },
-  { name: 'Creative Tasks',    colour: '#fb7185', sort_order: 6 },
-  { name: 'Time Wasting',      colour: '#f87171', sort_order: 7 }
+  { name: 'Emails',      colour: '#58a6ff', sort_order: 1 },
+  { name: 'Admin work',  colour: '#fbbf24', sort_order: 2 },
+  { name: 'Meetings',    colour: '#a78bfa', sort_order: 3 }
 ];
 
 // ── State ──────────────────────────────────────────────────
@@ -1706,8 +1715,15 @@ async function loadAppVersion() {
 async function checkForUpdates() {
   const status = $('updateStatus');
   const btn = $('checkUpdateBtn');
+  const progressBar = $('updateProgressBar');
+  const progressFill = $('updateProgressFill');
+  const manualLink = $('updateManualLink');
+
   status.textContent = 'Checking…';
   btn.disabled = true;
+  progressBar.style.display = 'none';
+  manualLink.style.display = 'none';
+
   try {
     const result = await ipcRenderer.invoke('check-for-updates');
     if (result.dev) {
@@ -1716,6 +1732,19 @@ async function checkForUpdates() {
       status.textContent = '⚠ ' + result.error;
     } else if (result.available) {
       status.textContent = `Update available: v${result.latestVersion} — downloading…`;
+      progressBar.style.display = 'block';
+      // Show manual link after 30 seconds if still downloading
+      setTimeout(() => {
+        if (progressBar.style.display !== 'none') {
+          manualLink.style.display = 'block';
+          const link = $('manualDownloadLink');
+          link.href = `https://github.com/FlynnAskew/daytimer/releases/latest`;
+          link.onclick = (e) => {
+            e.preventDefault();
+            ipcRenderer.send('open-external', link.href);
+          };
+        }
+      }, 30000);
     } else {
       status.textContent = `You're on the latest version.`;
       setTimeout(() => { if (status.textContent.startsWith("You're")) status.textContent = ''; }, 4000);
@@ -1728,10 +1757,32 @@ async function checkForUpdates() {
 }
 
 // Listen for update events from main process
+ipcRenderer.on('update-available', (event, info) => {
+  if ($('updateStatus')) {
+    $('updateStatus').textContent = `Update v${info.version} available — downloading…`;
+    if ($('updateProgressBar')) $('updateProgressBar').style.display = 'block';
+  }
+});
+
+ipcRenderer.on('update-progress', (event, progress) => {
+  const fill = $('updateProgressFill');
+  const status = $('updateStatus');
+  if (fill && progress.percent !== undefined) {
+    fill.style.width = Math.round(progress.percent) + '%';
+  }
+  if (status && progress.percent !== undefined) {
+    const mb = progress.transferred ? (progress.transferred / 1024 / 1024).toFixed(1) : '?';
+    const total = progress.total ? (progress.total / 1024 / 1024).toFixed(0) : '?';
+    status.textContent = `Downloading update… ${Math.round(progress.percent)}% (${mb}/${total} MB)`;
+  }
+});
+
 ipcRenderer.on('update-downloaded', (event, info) => {
   if ($('updateStatus')) {
     $('updateStatus').textContent = `Update v${info.version} downloaded — restart to install.`;
   }
+  if ($('updateProgressBar')) $('updateProgressBar').style.display = 'none';
+  if ($('updateManualLink')) $('updateManualLink').style.display = 'none';
 });
 
 function renderThemePickers() {
@@ -1802,9 +1853,12 @@ function renderCategoryList() {
 function openColourPicker(id) {
   openModal(`
     <div class="modal-title">Pick a colour</div>
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-top:6px;">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-top:6px;">
       ${CATEGORY_COLOURS.map(c => `
-        <button class="cat-dot" style="background:${c};width:40px;height:40px;border:2px solid var(--border);cursor:pointer;" data-colour="${c}"></button>
+        <button class="cat-dot" style="background:${c};width:36px;height:36px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform 0.12s,border-color 0.12s;" data-colour="${c}"
+          onmouseover="this.style.transform='scale(1.15)';this.style.borderColor='var(--text)'"
+          onmouseout="this.style.transform='scale(1)';this.style.borderColor='transparent'">
+        </button>
       `).join('')}
     </div>
     <div class="modal-footer">

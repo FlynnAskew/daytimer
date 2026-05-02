@@ -87,6 +87,7 @@ body {
 }
 
 .icon-btn:hover { color: var(--text); background: var(--surface2); }
+.icon-btn.close-btn:hover { color: #f87171; background: rgba(248,113,113,0.12); }
 
 .body {
   padding: 12px;
@@ -300,6 +301,7 @@ body {
       <div class="titlebar-right">
         <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
         <button class="icon-btn" id="minimiseBtn" title="Minimise">─</button>
+        <button class="icon-btn close-btn" id="closeBtn" title="Close DayTimer">✕</button>
       </div>
     </div>
 
@@ -336,6 +338,18 @@ body {
       <div class="status-row" id="statusRow"></div>
     </div>
 
+  </div>
+
+  <!-- Close confirmation overlay -->
+  <div id="closeConfirm" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);border-radius:16px;z-index:50;display:none;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:100%;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">Close DayTimer?</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;">Your running timer won't be saved.</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="pause-btn" id="cancelCloseBtn">Cancel</button>
+        <button class="pause-btn" id="confirmCloseBtn" style="border-color:#f87171;color:#f87171;">Close app</button>
+      </div>
+    </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
@@ -705,8 +719,28 @@ body {
       ipcRenderer.send(isMinimised ? 'widget-minimise' : 'widget-expand');
     });
 
-    // ── Open main app ─────────────────────────────────────────
-    openMainBtn.addEventListener('click', () => {
+    // ── Close button with confirmation ────────────────────────
+    const closeBtn = document.getElementById('closeBtn');
+    const closeConfirm = document.getElementById('closeConfirm');
+    const cancelCloseBtn = document.getElementById('cancelCloseBtn');
+    const confirmCloseBtn = document.getElementById('confirmCloseBtn');
+
+    closeBtn.addEventListener('click', () => {
+      // If day hasn't started, close without confirmation
+      if (!dayStarted) {
+        ipcRenderer.send('quit-app');
+        return;
+      }
+      closeConfirm.style.display = 'flex';
+    });
+
+    cancelCloseBtn.addEventListener('click', () => {
+      closeConfirm.style.display = 'none';
+    });
+
+    confirmCloseBtn.addEventListener('click', () => {
+      ipcRenderer.send('quit-app');
+    });
       ipcRenderer.send('open-main');
     });
 

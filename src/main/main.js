@@ -266,6 +266,14 @@ ipcMain.on('widget-resize', (event, height) => {
   }
 });
 
+ipcMain.on('quit-app', () => {
+  app.quit();
+});
+
+ipcMain.on('open-external', (event, url) => {
+  shell.openExternal(url);
+});
+
 ipcMain.on('reset-widget-position', () => {
   if (!widgetWindow) return;
   const { width: sw } = screen.getPrimaryDisplay().workAreaSize;
@@ -330,6 +338,14 @@ ipcMain.on('toggle-devtools-login', () => {
 //  AUTO-UPDATER EVENTS
 // ══════════════════════════════════════════════════════════════
 if (autoUpdater) {
+  autoUpdater.on('update-available', (info) => {
+    if (mainWindow) mainWindow.webContents.send('update-available', info);
+  });
+
+  autoUpdater.on('download-progress', (progress) => {
+    if (mainWindow) mainWindow.webContents.send('update-progress', progress);
+  });
+
   autoUpdater.on('update-downloaded', (info) => {
     if (mainWindow) mainWindow.webContents.send('update-downloaded', info);
     dialog.showMessageBox({

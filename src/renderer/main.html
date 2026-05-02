@@ -460,7 +460,15 @@
           </div>
           <div class="field-row">
             <div class="field-label"></div>
-            <div id="updateStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;"></div>
+            <div style="width:100%;max-width:360px;">
+              <div id="updateStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;margin-bottom:6px;"></div>
+              <div id="updateProgressBar" style="display:none;height:4px;background:var(--surface2);border-radius:2px;overflow:hidden;margin-bottom:8px;">
+                <div id="updateProgressFill" style="height:100%;background:var(--accent);border-radius:2px;width:0%;transition:width 0.3s;"></div>
+              </div>
+              <div id="updateManualLink" style="display:none;font-size:11px;">
+                Download stalling? <a id="manualDownloadLink" href="#" style="color:var(--accent);">Download manually →</a>
+              </div>
+            </div>
           </div>
         </div>
       </div>
