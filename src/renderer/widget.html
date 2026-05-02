@@ -741,6 +741,9 @@ body {
     confirmCloseBtn.addEventListener('click', () => {
       ipcRenderer.send('quit-app');
     });
+
+    // ── Open main app ─────────────────────────────────────────
+    openMainBtn.addEventListener('click', () => {
       ipcRenderer.send('open-main');
     });
 
