@@ -7,6 +7,18 @@ let autoUpdater = null;
 if (app.isPackaged) {
   try {
     autoUpdater = require('electron-updater').autoUpdater;
+    // Explicitly enable differential (delta) downloads — on Windows this
+    // means electron-updater fetches the small block-map patch instead
+    // of the full installer when possible.
+    autoUpdater.disableDifferentialDownload = false;
+    // Enable verbose logging so the Settings → About console shows what
+    // the updater is doing — invaluable for diagnosing firewall issues.
+    autoUpdater.logger = {
+      info:  (m) => console.log('[updater]', m),
+      warn:  (m) => console.warn('[updater]', m),
+      error: (m) => console.error('[updater]', m),
+      debug: (m) => console.log('[updater]', m)
+    };
   } catch (e) {
     console.log('electron-updater not available');
   }
