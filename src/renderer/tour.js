@@ -276,9 +276,26 @@
       });
 
       if (target) {
-        // Position spotlight + tooltip
+        // Ensure the target is in view. We scroll BOTH the target and any
+        // scrollable ancestor (e.g. the page-content scroll area) because
+        // scrollIntoView only handles one level by default — that's why
+        // deeply nested elements often appear at the bottom of the screen.
+        try {
+          // First scroll the target into the centre of any scrollable parent
+          let parent = target.parentElement;
+          while (parent && parent !== document.body) {
+            const cs = getComputedStyle(parent);
+            if (/(auto|scroll)/.test(cs.overflowY) && parent.scrollHeight > parent.clientHeight) {
+              const r = target.getBoundingClientRect();
+              const pr = parent.getBoundingClientRect();
+              const offset = (r.top - pr.top) - (parent.clientHeight / 2) + (r.height / 2);
+              parent.scrollTop += offset;
+            }
+            parent = parent.parentElement;
+          }
+        } catch (e) {}
         target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
-        await new Promise(r => setTimeout(r, 160));
+        await new Promise(r => setTimeout(r, 380));
         const rect = target.getBoundingClientRect();
         spotlight.style.display = '';
         spotlight.style.top    = (rect.top    - PADDING) + 'px';

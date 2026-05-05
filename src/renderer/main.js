@@ -3284,13 +3284,22 @@ function buildTourSteps() {
   const name = getFirstName();
   const widgetIllustration = (highlight) => `<div style="margin-bottom:12px;">${widgetSvg(highlight)}</div>`;
 
+  // Track when we've transitioned from widget illustration tour into main app tour
+  let widgetTourEnded = false;
+  const ensureWidgetHidden = () => {
+    if (!widgetTourEnded) {
+      widgetTourEnded = true;
+      try { ipcRenderer.send('widget-hide'); } catch (e) {}
+    }
+  };
+
   return [
     // ── Widget tour (illustrated) ─────────────────────────────
     {
       target: null,
       title: `Hey ${name}! 👋`,
       body: widgetIllustration(null) +
-        `Welcome to DayTimer. The widget on the left is what sits on top of your screen all day, so you can track your time without breaking flow. Let's take a quick look around.`
+        `Welcome to DayTimer. The widget pictured above is what sits on top of your screen all day, so you can track your time without breaking flow. Let's take a quick look around.`
     },
     {
       target: null,
@@ -3332,7 +3341,7 @@ function buildTourSteps() {
       target: null,
       title: 'Open the main dashboard',
       body: widgetIllustration('openmain') +
-        `Widget tour done! The grid button (⊞) opens the main dashboard — that's where all your time data lives. Click <strong>Next</strong> and we'll take a look.`
+        `Widget tour done! The grid button (⊞) on the widget opens the main dashboard — that's where all your time data lives. Click <strong>Next</strong> and we'll take a look.`
     },
 
     // ── Main app tour (real-element spotlights) ───────────────
@@ -3341,34 +3350,112 @@ function buildTourSteps() {
       title: 'The dashboard',
       body: `Welcome to the DayTimer dashboard. All your tracked time, charts, planning tools and settings live here.`,
       placement: 'auto',
-      onShow: () => navigateTo('tracker')
+      onShow: async () => {
+        ensureWidgetHidden();
+        navigateTo('tracker');
+      }
     },
     {
-      target: () => document.querySelector('.sidebar') || document.querySelector('.nav'),
+      target: () => document.querySelector('.sidebar'),
       title: 'Sidebar',
-      body: `Five sections on the left: <strong>Tracker</strong>, <strong>Planner</strong>, <strong>Insights</strong>, <strong>Stats</strong>, and <strong>Settings</strong>.`,
+      body: `Six sections on the left — <strong>Tracker</strong>, <strong>Planner</strong>, <strong>To-Do</strong>, <strong>Insights</strong>, <strong>Stats</strong>, and <strong>Settings</strong>. We'll walk through each one.`,
       placement: 'right'
     },
     {
-      target: () => document.querySelector('#page-tracker') || document.querySelector('.tracker-list') || document.querySelector('.page-content'),
+      target: () => document.querySelector('#page-tracker'),
       title: 'Tracker',
-      body: `Everything you've logged today. Edit task names, swap categories, or delete anything that went wrong.`,
+      body: `Everything you've logged today appears here. Edit task names, swap categories, or delete entries that went wrong. It's your running record of the day.`,
       placement: 'auto',
       onShow: () => navigateTo('tracker')
     },
     {
-      target: () => document.querySelector('#plannerSingle') || document.querySelector('#page-planner') || document.querySelector('.page-content'),
+      target: () => document.querySelector('#page-planner'),
       title: 'Day Planner',
-      body: `Plan your day before it happens, then compare to what actually happened. Sync your Outlook calendar and meetings fill in automatically — more on that in a moment.`,
+      body: `Plan your day in advance — block out time for tasks before you start. Click any slot to add a task, or drag across multiple slots for longer blocks.`,
       placement: 'auto',
       onShow: () => navigateTo('planner')
     },
     {
-      target: () => document.querySelector('#categoryList')?.closest('.settings-section') || document.querySelector('.settings-section'),
-      title: 'Categories & themes',
-      body: `Set up your own categories here so your time tracking matches how you actually work. Pick a theme while you're at it.`,
+      target: () => document.querySelector('.view-tabs') || document.querySelector('[data-view="split"]'),
+      title: 'Plan vs Actual',
+      body: `Switch between <strong>Plan</strong>, <strong>Actual</strong>, and <strong>Split View</strong>. Split View is the most useful — it shows your plan side-by-side with what actually happened, so you can see where the day diverged.`,
+      placement: 'bottom',
+      onShow: async () => {
+        navigateTo('planner');
+        // Switch to split view for visual emphasis
+        await new Promise(r => setTimeout(r, 80));
+        const btn = document.querySelector('[data-view="split"]');
+        if (btn) btn.click();
+      }
+    },
+    {
+      target: () => document.querySelector('#page-todos'),
+      title: 'To-Do list',
+      body: `Park ideas and tasks here when they pop into your head. When you're ready, drop them into the Day Planner. You can also flip to <strong>Microsoft To Do</strong> at the top to see your inbox-style tasks (we're rolling that bit out next).`,
       placement: 'auto',
-      onShow: () => navigateTo('settings')
+      onShow: () => navigateTo('todos')
+    },
+    {
+      target: () => document.querySelector('#page-insights'),
+      title: 'Insights',
+      body: `Your time visualised — daily breakdowns, category splits, and trends. The further back you look, the more obvious your patterns get.`,
+      placement: 'auto',
+      onShow: () => navigateTo('insights')
+    },
+    {
+      target: () => document.querySelector('#goalsCard'),
+      title: 'Goals',
+      body: `Set daily or weekly time targets for any category — like "no more than 2 hours a day on emails" or "at least 4 hours of deep work". Progress shows live as you track.`,
+      placement: 'top',
+      onShow: async () => {
+        navigateTo('insights');
+        await new Promise(r => setTimeout(r, 100));
+        const el = document.querySelector('#goalsCard');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    },
+    {
+      target: () => document.querySelector('#page-stats'),
+      title: 'Stats',
+      body: `The data view — totals, averages, and how each category stacks up over time. Useful for end-of-week or end-of-month reviews.`,
+      placement: 'auto',
+      onShow: () => navigateTo('stats')
+    },
+    {
+      target: () => document.querySelector('#categoryList')?.closest('.settings-section'),
+      title: 'Categories',
+      body: `Set up your own categories here so your time tracking matches how you actually work. Add, rename, recolour or delete — these are the labels that show up in the widget dropdown.`,
+      placement: 'auto',
+      onShow: async () => {
+        navigateTo('settings');
+        await new Promise(r => setTimeout(r, 100));
+        const el = document.querySelector('#categoryList')?.closest('.settings-section');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    },
+    {
+      target: () => {
+        // Look for the Appearance section by its title text
+        const titles = document.querySelectorAll('.section-title');
+        for (const t of titles) {
+          if (t.textContent.trim() === 'Appearance') return t.closest('.settings-section');
+        }
+        return null;
+      },
+      title: 'Themes',
+      body: `Pick a colour theme to make DayTimer feel like yours. There's a range of light and dark themes to choose from.`,
+      placement: 'auto',
+      onShow: async () => {
+        navigateTo('settings');
+        await new Promise(r => setTimeout(r, 100));
+        const titles = document.querySelectorAll('.section-title');
+        for (const t of titles) {
+          if (t.textContent.trim() === 'Appearance') {
+            t.closest('.settings-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            break;
+          }
+        }
+      }
     },
     {
       target: () => document.querySelector('#msConnectBtn')?.closest('.settings-section'),
@@ -3377,16 +3464,19 @@ function buildTourSteps() {
       placement: 'auto',
       onShow: async () => {
         navigateTo('settings');
-        // Scroll to integrations section
         await new Promise(r => setTimeout(r, 100));
-        const el = document.querySelector('#msConnectBtn');
+        const el = document.querySelector('#msConnectBtn')?.closest('.settings-section');
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     },
     {
       target: null,
       title: `You're all set, ${name}! 🎉`,
-      body: `That's the lot. All the best with DayTimer — hope it makes time tracking feel less like a faff.<br><br>If you ever want to run through this tour again, you can find a <strong>Replay tour</strong> button in <strong>Settings → About</strong>.`
+      body: `That's the lot. All the best with DayTimer — hope it makes time tracking feel less like a faff.<br><br>If you ever want to run through this tour again, you can find a <strong>Replay tour</strong> button in <strong>Settings → About</strong>.`,
+      onShow: () => {
+        // Return to tracker view as a clean exit
+        navigateTo('tracker');
+      }
     }
   ];
 }
@@ -3401,7 +3491,13 @@ async function startOnboardingTour() {
   const steps = buildTourSteps();
   window.tourRun(steps, {
     storageKey: 'daytimer_tour_completed',
-    finalLabel: 'Finish'
+    finalLabel: 'Finish',
+    onFinish: () => {
+      // Bring the widget back (it was hidden during the main app tour)
+      try { ipcRenderer.send('widget-show'); } catch (e) {}
+      // Land on the tracker view
+      try { navigateTo('tracker'); } catch (e) {}
+    }
   });
 }
 

@@ -424,6 +424,14 @@ ipcMain.on('widget-minimise', () => {
   if (widgetWindow) widgetWindow.setSize(320, 48, true);
 });
 
+ipcMain.on('widget-hide', () => {
+  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
+});
+
+ipcMain.on('widget-show', () => {
+  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.show();
+});
+
 ipcMain.on('widget-expand', () => {
   if (widgetWindow) widgetWindow.setSize(320, 310, true);
 });
