@@ -56,9 +56,12 @@ let currentUserId = null;
     console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
 
     // Re-load any data that was attempted before auth was ready
-    try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
-    try { if (typeof loadPlanner    === 'function') await loadPlanner();    } catch (e) {}
-    try { if (typeof loadTracker    === 'function') await loadTracker();    } catch (e) {}
+    try { if (typeof loadCategoriesFromDb === 'function') await loadCategoriesFromDb(); } catch (e) {}
+    try { if (typeof loadTracker         === 'function') loadTracker();         } catch (e) {}
+    try { if (typeof loadPlanner         === 'function') loadPlanner();         } catch (e) {}
+    try { if (typeof loadLocalTodos      === 'function') loadLocalTodos();      } catch (e) {}
+    // Notify any other code paths waiting for auth
+    window.dispatchEvent(new Event('auth-ready'));
   } catch (e) {
     console.error('Main: Supabase init failed:', e);
   }
@@ -291,11 +294,31 @@ $('modalBackdrop').addEventListener('click', (e) => {
   if (e.target === $('modalBackdrop')) closeModal();
 });
 
+// Wait for the async auth setup to finish before doing DB work.
+// Returns true if dbReady became true within the timeout, false otherwise.
+function waitForAuth(timeoutMs = 5000) {
+  return new Promise(resolve => {
+    if (dbReady) return resolve(true);
+    const started = Date.now();
+    const tick = () => {
+      if (dbReady) return resolve(true);
+      if (Date.now() - started > timeoutMs) return resolve(false);
+      setTimeout(tick, 100);
+    };
+    tick();
+  });
+}
+
 // ═══════════════════════════════════════════════════════════
 //  CATEGORIES
 // ═══════════════════════════════════════════════════════════
 async function loadCategoriesFromDb() {
+  // Don't bail to defaults just because dbReady isn't true yet — the
+  // async auth setup may still be running. Wait briefly first.
+  await waitForAuth();
+
   if (!dbReady) {
+    console.warn('loadCategoriesFromDb: auth not ready after 5s, using defaults');
     state.categories = DEFAULT_CATEGORIES.map((c, i) => ({ ...c, id: 'local-' + i }));
     return;
   }
