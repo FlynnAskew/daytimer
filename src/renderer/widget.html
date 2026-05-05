@@ -406,6 +406,19 @@ body {
         window.currentUserId = currentUserId;
         console.log('Widget: signed in as', session.user.email, 'uid:', currentUserId);
 
+        // Listen for refreshed tokens from the main process
+        ipcRenderer.on('session-refreshed', async (_evt, fresh) => {
+          try {
+            await dbClient.auth.setSession({
+              access_token:  fresh.access_token,
+              refresh_token: fresh.refresh_token
+            });
+            console.log('Widget: session refreshed, expires', new Date(fresh.expires_at * 1000).toISOString());
+          } catch (e) {
+            console.error('Widget: failed to apply refreshed session', e);
+          }
+        });
+
         // Now that auth is ready, refresh whatever the widget normally loads on boot
         try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
         try { if (typeof refreshUpcoming === 'function') refreshUpcoming(); } catch (e) {}

@@ -227,12 +227,90 @@ app.on('open-url', (event, url) => {
 // see the login window's Supabase session. The login renderer pushes
 // the session here, and any other renderer pulls it via get-session.
 let cachedSession = null;
+let refreshTimer  = null;
 
 ipcMain.handle('get-session', () => cachedSession);
 
 ipcMain.on('set-session', (_evt, session) => {
   cachedSession = session;
+  scheduleRefresh();
 });
+
+// ── Automatic token refresh ───────────────────────────────────
+// Microsoft access tokens expire after ~1 hour. Without refresh,
+// every save fails until the user signs in again. We use the refresh
+// token to mint a new access token before expiry and push the new
+// session to every renderer window so their RLS calls keep working.
+
+function scheduleRefresh() {
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
+  if (!cachedSession || !cachedSession.expires_at) return;
+
+  const expiresAtMs = cachedSession.expires_at * 1000;
+  // Refresh 5 minutes before expiry, but not less than 10 seconds away
+  const refreshIn = Math.max(10_000, expiresAtMs - Date.now() - 5 * 60 * 1000);
+  console.log('[main] token refresh scheduled in', Math.round(refreshIn / 1000), 's');
+  refreshTimer = setTimeout(refreshSession, refreshIn);
+}
+
+async function refreshSession() {
+  if (!cachedSession || !cachedSession.refresh_token) return;
+  try {
+    // Read Supabase config from the same file the renderers use
+    const cfg = require(path.join(__dirname, '..', 'supabase-config.js'));
+    if (!cfg.url || !cfg.anonKey) {
+      console.error('[main] supabase config missing — cannot refresh');
+      return;
+    }
+
+    const res = await fetch(`${cfg.url}/auth/v1/token?grant_type=refresh_token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': cfg.anonKey,
+        'Authorization': `Bearer ${cfg.anonKey}`
+      },
+      body: JSON.stringify({ refresh_token: cachedSession.refresh_token })
+    });
+
+    if (!res.ok) {
+      const txt = await res.text().catch(() => '');
+      console.error('[main] token refresh failed', res.status, txt);
+      return;
+    }
+
+    const fresh = await res.json();
+    if (!fresh.access_token || !fresh.refresh_token) {
+      console.error('[main] token refresh returned no tokens', fresh);
+      return;
+    }
+
+    // Merge the new tokens into the cached session
+    cachedSession = {
+      ...cachedSession,
+      access_token:  fresh.access_token,
+      refresh_token: fresh.refresh_token,
+      expires_at:    fresh.expires_at,
+      expires_in:    fresh.expires_in,
+      token_type:    fresh.token_type || cachedSession.token_type
+    };
+    console.log('[main] token refreshed, new expiry:', new Date(cachedSession.expires_at * 1000).toISOString());
+
+    // Push fresh tokens to every renderer
+    [widgetWindow, mainWindow, loginWindow].forEach(win => {
+      if (win && !win.isDestroyed()) {
+        win.webContents.send('session-refreshed', cachedSession);
+      }
+    });
+
+    // Schedule the next refresh
+    scheduleRefresh();
+  } catch (e) {
+    console.error('[main] token refresh threw', e);
+    // Try again in a minute in case it was a transient network issue
+    refreshTimer = setTimeout(refreshSession, 60_000);
+  }
+}
 
 ipcMain.on('login-success', (event, payload) => {
   // payload may be the user object (legacy) or { user, session } (new)
@@ -240,7 +318,10 @@ ipcMain.on('login-success', (event, payload) => {
   const session = payload?.session || null;
 
   currentUser = user;
-  if (session) cachedSession = session;
+  if (session) {
+    cachedSession = session;
+    scheduleRefresh();
+  }
   store.set('lastUser', user);
 
   // Close login window and open the app
@@ -255,6 +336,7 @@ ipcMain.on('login-success', (event, payload) => {
 ipcMain.on('logout', async () => {
   currentUser = null;
   cachedSession = null;
+  if (refreshTimer) { clearTimeout(refreshTimer); refreshTimer = null; }
   store.delete('lastUser');
 
   // Close all windows

@@ -55,6 +55,19 @@ let currentUserId = null;
     window.currentUserId = currentUserId;
     console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
 
+    // Listen for refreshed tokens from the main process
+    ipcRenderer.on('session-refreshed', async (_evt, fresh) => {
+      try {
+        await dbClient.auth.setSession({
+          access_token:  fresh.access_token,
+          refresh_token: fresh.refresh_token
+        });
+        console.log('Main: session refreshed, expires', new Date(fresh.expires_at * 1000).toISOString());
+      } catch (e) {
+        console.error('Main: failed to apply refreshed session', e);
+      }
+    });
+
     // Re-load any data that was attempted before auth was ready
     try { if (typeof loadCategoriesFromDb === 'function') await loadCategoriesFromDb(); } catch (e) {}
     try { if (typeof loadTracker         === 'function') loadTracker();         } catch (e) {}
