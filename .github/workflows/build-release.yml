@@ -62,6 +62,9 @@ jobs:
         # electron-builder creates the release as a draft. Flip it to
         # published so auto-update clients can see it without a manual
         # click in the GitHub UI.
+        # NOTE: GET /releases/tags/{tag} only returns *published* releases,
+        # so we list all releases (which includes drafts) and find the one
+        # matching this tag.
         shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -73,7 +76,13 @@ jobs:
             'Accept'        = 'application/vnd.github+json'
             'X-GitHub-Api-Version' = '2022-11-28'
           }
-          $rel = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:REPO/releases/tags/$env:TAG_REF"
+          # List all releases (max 30 most recent — plenty)
+          $releases = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:REPO/releases?per_page=30"
+          $rel = $releases | Where-Object { $_.tag_name -eq $env:TAG_REF } | Select-Object -First 1
+          if (-not $rel) {
+            Write-Host "No release found for tag $env:TAG_REF — nothing to publish."
+            exit 0
+          }
           if ($rel.draft -eq $true) {
             Write-Host "Publishing draft release $($rel.tag_name) (id $($rel.id))"
             $body = @{ draft = $false; make_latest = 'true' } | ConvertTo-Json
