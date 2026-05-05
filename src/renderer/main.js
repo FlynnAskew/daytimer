@@ -16,6 +16,7 @@ try {
 let dbClient = null;
 let dbReady = false;
 let currentUser = null;
+let currentUserId = null;
 
 try {
   if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
@@ -24,9 +25,22 @@ try {
       auth: { persistSession: true, autoRefreshToken: true }
     });
     dbReady = true;
+    // Capture user ID for inserts
+    dbClient.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.id) {
+        currentUserId = session.user.id;
+        console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
+      }
+    });
   }
 } catch (e) {
   console.error('Supabase init failed:', e);
+}
+
+// Helper: stamp user_id on every row before insert
+function withUid(row) {
+  if (currentUserId) row.user_id = currentUserId;
+  return row;
 }
 
 // Receive user info from main process
@@ -103,6 +117,7 @@ const state = {
   plannerDate: new Date(),
   plannerView: 'plan',
   plannerZoom: 1, // 1 = default, 2 = 2x zoom, etc
+  extendedHours: false, // Toggle to expand planner to 4am–10pm
   analysisRange: 'week',
   customFrom: null,
   customTo: null
@@ -260,9 +275,9 @@ async function loadCategoriesFromDb() {
     if (error) throw error;
 
     if (!data || data.length === 0) {
-      // Seed defaults
+      // Seed defaults — stamp user_id on each
       const { data: inserted, error: insErr } = await dbClient
-        .from('categories').insert(DEFAULT_CATEGORIES).select();
+        .from('categories').insert(DEFAULT_CATEGORIES.map(c => withUid({...c}))).select();
       if (insErr) throw insErr;
       state.categories = inserted || [];
     } else {
@@ -484,8 +499,16 @@ $('trackerToday').addEventListener('click', () => {
 //  PLANNER PAGE
 // ═══════════════════════════════════════════════════════════
 const SLOT_MINUTES = 15;
-const DAY_START_HOUR = 7;
-const DAY_END_HOUR = 19;
+// Default planner window — clean, compact view for most users
+const DAY_START_HOUR_DEFAULT  = 6;   // 6am
+const DAY_END_HOUR_DEFAULT    = 18;  // 6pm (last slot 17:30)
+// Extended planner window — toggle in UI to reveal early-bird/late hours
+const DAY_START_HOUR_EXTENDED = 4;   // 4am
+const DAY_END_HOUR_EXTENDED   = 22;  // 10pm
+
+// Active values — switched at runtime by the toggle
+let DAY_START_HOUR = DAY_START_HOUR_DEFAULT;
+let DAY_END_HOUR   = DAY_END_HOUR_DEFAULT;
 
 function generateTimeSlots() {
   const slots = [];
@@ -522,6 +545,32 @@ async function loadPlanner() {
       console.error('Load planner error:', e);
     }
   }
+
+  // Determine the active hour range (extended toggle OR auto-expand if data falls outside default window)
+  const needsExtendedForData = (() => {
+    const outsideDefault = (mins) =>
+      mins < DAY_START_HOUR_DEFAULT * 60 || mins >= DAY_END_HOUR_DEFAULT * 60;
+    for (const p of planItems) {
+      const [sh, sm] = p.planned_start.split(':').map(Number);
+      const [eh, em] = p.planned_end.split(':').map(Number);
+      if (outsideDefault(sh * 60 + sm) || outsideDefault(eh * 60 + em - 1)) return true;
+    }
+    for (const e of entries) {
+      const s = new Date(e.started_at);
+      const en = new Date(e.ended_at);
+      if (outsideDefault(s.getHours() * 60 + s.getMinutes()) ||
+          outsideDefault(en.getHours() * 60 + en.getMinutes() - 1)) return true;
+    }
+    return false;
+  })();
+
+  const useExtended = state.extendedHours || needsExtendedForData;
+  DAY_START_HOUR = useExtended ? DAY_START_HOUR_EXTENDED : DAY_START_HOUR_DEFAULT;
+  DAY_END_HOUR   = useExtended ? DAY_END_HOUR_EXTENDED   : DAY_END_HOUR_DEFAULT;
+
+  // Reflect auto-expand visually so the user knows why the view widened
+  const toggle = $('extendedHoursToggle');
+  if (toggle) toggle.checked = useExtended;
 
   // Update stats
   const plannedSecs = planItems.reduce((s, p) => {
@@ -1124,13 +1173,13 @@ async function openAddPlanItem(startTime, explicitEndTime) {
     const end   = pad(Math.floor(endMins / 60))   + ':' + pad(endMins % 60);
 
     if (dbReady) {
-      await dbClient.from('day_plans').insert([{
+      await dbClient.from('day_plans').insert([withUid({
         date: dateToString(state.plannerDate),
         task_name: task,
         category,
         planned_start: start,
         planned_end: end
-      }]);
+      })]);
     }
 
     // Remember this end time for the next "add plan" defaults
@@ -1271,6 +1320,21 @@ $('plannerToday').addEventListener('click', () => {
   state.plannerDate = new Date();
   loadPlanner();
 });
+
+// Extended hours toggle — saves preference and reloads planner
+const extToggle = $('extendedHoursToggle');
+if (extToggle) {
+  // Restore saved preference (defaults to off)
+  try {
+    state.extendedHours = localStorage.getItem('extendedHours') === 'true';
+    extToggle.checked = state.extendedHours;
+  } catch (e) { /* ignore */ }
+  extToggle.addEventListener('change', () => {
+    state.extendedHours = extToggle.checked;
+    try { localStorage.setItem('extendedHours', state.extendedHours); } catch (e) {}
+    loadPlanner();
+  });
+}
 
 document.querySelectorAll('.view-tab').forEach(tab => {
   tab.addEventListener('click', () => {
@@ -1909,9 +1973,9 @@ $('addCategoryBtn').addEventListener('click', async () => {
   const sortOrder = state.categories.length + 1;
 
   if (dbReady) {
-    const { data, error } = await dbClient.from('categories').insert([{
+    const { data, error } = await dbClient.from('categories').insert([withUid({
       name: newName, colour: newColour, sort_order: sortOrder
-    }]).select();
+    })]).select();
     if (!error && data) {
       state.categories.push(data[0]);
     }
@@ -1992,7 +2056,7 @@ function openAddGoalModal() {
     if (!goal.category) return;
 
     if (dbReady) {
-      await dbClient.from('goals').insert([goal]);
+      await dbClient.from('goals').insert([withUid(goal)]);
     }
     closeModal();
     loadInsights();
@@ -2748,11 +2812,11 @@ async function addNewTodo() {
   if (!name) return;
   const category = $('todoNewCategory').value || null;
   if (dbReady) {
-    await dbClient.from('todos').insert([{
+    await dbClient.from('todos').insert([withUid({
       task_name: name,
       category,
       sort_order: (todoState.todos.length || 0) + 1
-    }]);
+    })]);
   }
   $('todoNewInput').value = '';
   $('todoNewCategory').value = '';
