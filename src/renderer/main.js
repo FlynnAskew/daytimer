@@ -1864,18 +1864,15 @@ async function checkForUpdates() {
     } else if (result.available) {
       status.textContent = `Update available: v${result.latestVersion} — downloading…`;
       progressBar.style.display = 'block';
-      // Show manual link after 30 seconds if still downloading
-      setTimeout(() => {
-        if (progressBar.style.display !== 'none') {
-          manualLink.style.display = 'block';
-          const link = $('manualDownloadLink');
-          link.href = `https://github.com/FlynnAskew/daytimer/releases/latest`;
-          link.onclick = (e) => {
-            e.preventDefault();
-            ipcRenderer.send('open-external', link.href);
-          };
-        }
-      }, 30000);
+      // Show manual link right away — many users are on networks that
+      // throttle large downloads, so the fallback should be obvious.
+      manualLink.style.display = 'block';
+      const link = $('manualDownloadLink');
+      link.href = `https://github.com/FlynnAskew/daytimer/releases/latest`;
+      link.onclick = (e) => {
+        e.preventDefault();
+        ipcRenderer.send('open-external', link.href);
+      };
     } else {
       status.textContent = `You're on the latest version.`;
       setTimeout(() => { if (status.textContent.startsWith("You're")) status.textContent = ''; }, 4000);

@@ -57,3 +57,29 @@ jobs:
         run: npm run publish
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Auto-publish the draft release
+        # electron-builder creates the release as a draft. Flip it to
+        # published so auto-update clients can see it without a manual
+        # click in the GitHub UI.
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO:     ${{ github.repository }}
+          TAG_REF:  ${{ github.ref_name }}
+        run: |
+          $headers = @{
+            'Authorization' = "Bearer $env:GH_TOKEN"
+            'Accept'        = 'application/vnd.github+json'
+            'X-GitHub-Api-Version' = '2022-11-28'
+          }
+          $rel = Invoke-RestMethod -Headers $headers -Uri "https://api.github.com/repos/$env:REPO/releases/tags/$env:TAG_REF"
+          if ($rel.draft -eq $true) {
+            Write-Host "Publishing draft release $($rel.tag_name) (id $($rel.id))"
+            $body = @{ draft = $false; make_latest = 'true' } | ConvertTo-Json
+            Invoke-RestMethod -Headers $headers -Method Patch -Body $body -ContentType 'application/json' `
+              -Uri "https://api.github.com/repos/$env:REPO/releases/$($rel.id)" | Out-Null
+            Write-Host "Release published."
+          } else {
+            Write-Host "Release already published, nothing to do."
+          }
