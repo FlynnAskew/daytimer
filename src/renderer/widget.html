@@ -509,14 +509,32 @@ body {
     ipcRenderer.on('refresh-categories', () => loadCategories());
 
     // ── Connection status ─────────────────────────────────────
-    if (dbReady) {
-      statusRow.textContent = 'Connected';
-      statusRow.className = 'status-row success';
-      setTimeout(() => { statusRow.textContent = ''; statusRow.className = 'status-row'; }, 1500);
-    } else {
-      statusRow.textContent = 'Supabase not configured';
-      statusRow.className = 'status-row error';
-    }
+    // The Supabase setup is async (it pulls the session from the main
+    // process via IPC), so dbReady may still be false at this point.
+    // Poll briefly and update the status when auth either settles or
+    // we give up.
+    (function reportConnectionStatus() {
+      const started = Date.now();
+      const tick = () => {
+        if (dbReady) {
+          statusRow.textContent = 'Connected';
+          statusRow.className = 'status-row success';
+          setTimeout(() => {
+            statusRow.textContent = '';
+            statusRow.className = 'status-row';
+          }, 1500);
+          return;
+        }
+        if (Date.now() - started > 5000) {
+          // Five seconds with no auth — surface the issue
+          statusRow.textContent = 'Not connected — sign-in may be expired';
+          statusRow.className = 'status-row error';
+          return;
+        }
+        setTimeout(tick, 150);
+      };
+      tick();
+    })();
 
     // ── Check if day already started ──────────────────────────
     async function checkDayStatus() {
