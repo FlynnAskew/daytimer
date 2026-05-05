@@ -2021,6 +2021,16 @@ function loadSettings() {
     updBtn.dataset.wired = 'true';
   }
 
+  // Replay tour button
+  const replayBtn = $('replayTourBtn');
+  if (replayBtn && !replayBtn.dataset.wired) {
+    replayBtn.addEventListener('click', () => {
+      try { localStorage.removeItem('daytimer_tour_completed'); } catch (e) {}
+      startOnboardingTour();
+    });
+    replayBtn.dataset.wired = 'true';
+  }
+
   // ── Microsoft Calendar integration ─────────────────────────
   setupMsIntegration();
 }
@@ -2128,7 +2138,13 @@ async function checkForUpdates() {
       // throttle large downloads, so the fallback should be obvious.
       manualLink.style.display = 'block';
       const link = $('manualDownloadLink');
-      link.href = `https://github.com/FlynnAskew/daytimer/releases/latest`;
+      // Direct .exe asset URL — colleagues' corporate accounts may not be
+      // able to browse github.com freely, but the direct asset URL is
+      // just a binary download and goes through.
+      const v = result.latestVersion;
+      link.href = v
+        ? `https://github.com/FlynnAskew/daytimer/releases/download/v${v}/DayTimer-Setup-${v}.exe`
+        : `https://github.com/FlynnAskew/daytimer/releases/latest`;
       link.onclick = (e) => {
         e.preventDefault();
         ipcRenderer.send('open-external', link.href);
@@ -3187,6 +3203,223 @@ function renderMsStatus() {
     </div>
   `;
 }
+
+// ═══════════════════════════════════════════════════════════
+//  ONBOARDING TOUR
+// ═══════════════════════════════════════════════════════════
+function getFirstName() {
+  const email = (currentUser && currentUser.email) || '';
+  const local = email.split('@')[0] || '';
+  // Try to extract a first name from the local part (e.g. "flynn.askew" -> "Flynn")
+  const namePart = local.split(/[\.\-_]/)[0] || local;
+  if (!namePart) return 'there';
+  return namePart.charAt(0).toUpperCase() + namePart.slice(1).toLowerCase();
+}
+
+// SVG illustration of the widget — used as visual aid for widget tour
+// steps so we don't have to literally spotlight elements across windows.
+function widgetSvg(highlightId) {
+  const isHL = (id) => highlightId === id;
+  const hl = (id) => isHL(id) ? '#6ee7b7' : 'transparent';
+  const hlWidth = (id) => isHL(id) ? 2.5 : 0;
+  const dim = (id) => highlightId && !isHL(id) ? 0.35 : 1;
+  return `
+  <svg viewBox="0 0 320 230" width="100%" style="display:block;border-radius:12px;background:#0f0f13;">
+    <!-- widget shell -->
+    <rect x="4" y="4" width="312" height="222" rx="14" fill="#1a1a22" stroke="#2e2e3e" stroke-width="1"/>
+    <!-- title bar -->
+    <g opacity="${dim('titlebar')}">
+      <rect x="4" y="4" width="312" height="36" rx="14" fill="#22222e"/>
+      <rect x="4" y="22" width="312" height="18" fill="#22222e"/>
+      <rect x="${isHL('titlebar') ? 4 : 0}" y="${isHL('titlebar') ? 4 : 0}" width="${isHL('titlebar') ? 312 : 0}" height="${isHL('titlebar') ? 36 : 0}" rx="14" fill="none" stroke="${hl('titlebar')}" stroke-width="${hlWidth('titlebar')}"/>
+      <circle cx="20" cy="22" r="4" fill="#6ee7b7"/>
+      <text x="32" y="26" font-family="DM Sans, sans-serif" font-size="11" fill="#aaaabb" font-weight="600">DayTimer</text>
+    </g>
+    <!-- minimise button -->
+    <g opacity="${dim('minimise')}">
+      <rect x="234" y="12" width="22" height="20" rx="5" fill="${isHL('minimise') ? '#6ee7b7' : '#2a2a35'}"/>
+      <line x1="240" y1="22" x2="250" y2="22" stroke="${isHL('minimise') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.6" stroke-linecap="round"/>
+      <rect x="234" y="12" width="22" height="20" rx="5" fill="none" stroke="${hl('minimise')}" stroke-width="${hlWidth('minimise')}"/>
+    </g>
+    <!-- open-main button -->
+    <g opacity="${dim('openmain')}">
+      <rect x="260" y="12" width="22" height="20" rx="5" fill="${isHL('openmain') ? '#6ee7b7' : '#2a2a35'}"/>
+      <rect x="266" y="17" width="10" height="10" rx="1.5" fill="none" stroke="${isHL('openmain') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.4"/>
+      <line x1="266" y1="22" x2="276" y2="22" stroke="${isHL('openmain') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.2"/>
+      <line x1="271" y1="17" x2="271" y2="27" stroke="${isHL('openmain') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.2"/>
+      <rect x="260" y="12" width="22" height="20" rx="5" fill="none" stroke="${hl('openmain')}" stroke-width="${hlWidth('openmain')}"/>
+    </g>
+    <!-- close button -->
+    <g opacity="${dim('close')}">
+      <rect x="286" y="12" width="22" height="20" rx="5" fill="${isHL('close') ? '#6ee7b7' : '#2a2a35'}"/>
+      <line x1="291" y1="17" x2="303" y2="27" stroke="${isHL('close') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.6" stroke-linecap="round"/>
+      <line x1="303" y1="17" x2="291" y2="27" stroke="${isHL('close') ? '#0f0f13' : '#aaaabb'}" stroke-width="1.6" stroke-linecap="round"/>
+      <rect x="286" y="12" width="22" height="20" rx="5" fill="none" stroke="${hl('close')}" stroke-width="${hlWidth('close')}"/>
+    </g>
+    <!-- timer display -->
+    <text x="160" y="80" text-anchor="middle" font-family="DM Mono, monospace" font-size="28" fill="#e8e8f0" font-weight="500">00:00:00</text>
+    <!-- task input -->
+    <g opacity="${dim('task')}">
+      <rect x="16" y="100" width="288" height="32" rx="6" fill="#15151c" stroke="#2e2e3e"/>
+      <text x="26" y="120" font-family="DM Sans, sans-serif" font-size="12" fill="#666677">What are you working on?</text>
+      <rect x="16" y="100" width="288" height="32" rx="6" fill="none" stroke="${hl('task')}" stroke-width="${hlWidth('task')}"/>
+    </g>
+    <!-- category dropdown -->
+    <g opacity="${dim('category')}">
+      <rect x="16" y="140" width="288" height="32" rx="6" fill="#15151c" stroke="#2e2e3e"/>
+      <text x="26" y="160" font-family="DM Sans, sans-serif" font-size="12" fill="#aaaabb">Emails</text>
+      <path d="M 290 153 l 6 6 l 6 -6" stroke="#aaaabb" stroke-width="1.4" fill="none" stroke-linecap="round"/>
+      <rect x="16" y="140" width="288" height="32" rx="6" fill="none" stroke="${hl('category')}" stroke-width="${hlWidth('category')}"/>
+    </g>
+    <!-- start/next button -->
+    <g opacity="${dim('start')}">
+      <rect x="16" y="180" width="288" height="36" rx="8" fill="${isHL('start') ? '#6ee7b7' : '#2a2a35'}"/>
+      <text x="160" y="203" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="13" fill="${isHL('start') ? '#0f0f13' : '#e8e8f0'}" font-weight="600">Start Day</text>
+      <rect x="16" y="180" width="288" height="36" rx="8" fill="none" stroke="${hl('start')}" stroke-width="${hlWidth('start')}"/>
+    </g>
+  </svg>`;
+}
+
+function buildTourSteps() {
+  const name = getFirstName();
+  const widgetIllustration = (highlight) => `<div style="margin-bottom:12px;">${widgetSvg(highlight)}</div>`;
+
+  return [
+    // ── Widget tour (illustrated) ─────────────────────────────
+    {
+      target: null,
+      title: `Hey ${name}! 👋`,
+      body: widgetIllustration(null) +
+        `Welcome to DayTimer. The widget on the left is what sits on top of your screen all day, so you can track your time without breaking flow. Let's take a quick look around.`
+    },
+    {
+      target: null,
+      title: 'The title bar',
+      body: widgetIllustration('titlebar') +
+        `Grab this bar to drag the widget anywhere on screen. Most people tuck it in a corner out of the way.`
+    },
+    {
+      target: null,
+      title: 'Minimise',
+      body: widgetIllustration('minimise') +
+        `Shrinks the widget to just the title bar. Still there, barely noticeable.`
+    },
+    {
+      target: null,
+      title: 'Close',
+      body: widgetIllustration('close') +
+        `Closes DayTimer. Don't worry — everything's saved before it shuts.`
+    },
+    {
+      target: null,
+      title: 'Task input',
+      body: widgetIllustration('task') +
+        `Type what you're working on right now. Short is fine — <em>"Writing proposal"</em> or <em>"Teams call with Geoff"</em> works perfectly.`
+    },
+    {
+      target: null,
+      title: 'Category',
+      body: widgetIllustration('category') +
+        `Assign your task to a category. You'll set up your own in Settings — we'll get to that shortly!`
+    },
+    {
+      target: null,
+      title: 'Start Day / Next Task',
+      body: widgetIllustration('start') +
+        `Hit <strong>Start Day</strong> to begin tracking. It then becomes <strong>Next Task</strong> — tap it whenever you switch tasks and it logs what you just did. If you planned your day ahead, your next task fills in automatically. When you're done for the day, hit <strong>Pause</strong> then <strong>→ End Day</strong>.`
+    },
+    {
+      target: null,
+      title: 'Open the main dashboard',
+      body: widgetIllustration('openmain') +
+        `Widget tour done! The grid button (⊞) opens the main dashboard — that's where all your time data lives. Click <strong>Next</strong> and we'll take a look.`
+    },
+
+    // ── Main app tour (real-element spotlights) ───────────────
+    {
+      target: () => document.querySelector('.app-shell, .sidebar, body'),
+      title: 'The dashboard',
+      body: `Welcome to the DayTimer dashboard. All your tracked time, charts, planning tools and settings live here.`,
+      placement: 'auto',
+      onShow: () => navigateTo('tracker')
+    },
+    {
+      target: () => document.querySelector('.sidebar') || document.querySelector('.nav'),
+      title: 'Sidebar',
+      body: `Five sections on the left: <strong>Tracker</strong>, <strong>Planner</strong>, <strong>Insights</strong>, <strong>Stats</strong>, and <strong>Settings</strong>.`,
+      placement: 'right'
+    },
+    {
+      target: () => document.querySelector('#page-tracker') || document.querySelector('.tracker-list') || document.querySelector('.page-content'),
+      title: 'Tracker',
+      body: `Everything you've logged today. Edit task names, swap categories, or delete anything that went wrong.`,
+      placement: 'auto',
+      onShow: () => navigateTo('tracker')
+    },
+    {
+      target: () => document.querySelector('#plannerSingle') || document.querySelector('#page-planner') || document.querySelector('.page-content'),
+      title: 'Day Planner',
+      body: `Plan your day before it happens, then compare to what actually happened. Sync your Outlook calendar and meetings fill in automatically — more on that in a moment.`,
+      placement: 'auto',
+      onShow: () => navigateTo('planner')
+    },
+    {
+      target: () => document.querySelector('#categoryList')?.closest('.settings-section') || document.querySelector('.settings-section'),
+      title: 'Categories & themes',
+      body: `Set up your own categories here so your time tracking matches how you actually work. Pick a theme while you're at it.`,
+      placement: 'auto',
+      onShow: () => navigateTo('settings')
+    },
+    {
+      target: () => document.querySelector('#msConnectBtn')?.closest('.settings-section'),
+      title: 'Connect your calendar',
+      body: `Connect your Outlook calendar under <strong>Integrations</strong> and your meetings will auto-fill the Day Planner. No more planning from scratch every day.`,
+      placement: 'auto',
+      onShow: async () => {
+        navigateTo('settings');
+        // Scroll to integrations section
+        await new Promise(r => setTimeout(r, 100));
+        const el = document.querySelector('#msConnectBtn');
+        if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    },
+    {
+      target: null,
+      title: `You're all set, ${name}! 🎉`,
+      body: `That's the lot. All the best with DayTimer — hope it makes time tracking feel less like a faff.<br><br>If you ever want to run through this tour again, you can find a <strong>Replay tour</strong> button in <strong>Settings → About</strong>.`
+    }
+  ];
+}
+
+async function startOnboardingTour() {
+  if (typeof window.tourRun !== 'function') {
+    console.warn('Tour runner not loaded');
+    return;
+  }
+  // Make sure the user data has loaded so getFirstName works
+  await waitForAuth(2000);
+  const steps = buildTourSteps();
+  window.tourRun(steps, {
+    storageKey: 'daytimer_tour_completed',
+    finalLabel: 'Finish'
+  });
+}
+
+// Listen for trigger from main process
+ipcRenderer.on('start-tour', () => {
+  startOnboardingTour();
+});
+
+// Safety net — if first-login flag is set and we missed the IPC, run anyway
+window.addEventListener('load', async () => {
+  try {
+    const isFirst = await ipcRenderer.invoke('is-first-login');
+    if (isFirst) {
+      // Slight delay so the dashboard has rendered
+      setTimeout(startOnboardingTour, 500);
+    }
+  } catch (e) { /* ignore */ }
+});
 
 // ═══════════════════════════════════════════════════════════
 //  BOOT

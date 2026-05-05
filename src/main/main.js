@@ -31,6 +31,7 @@ let loginWindow  = null;
 let widgetWindow = null;
 let mainWindow   = null;
 let currentUser  = null;
+let pendingFirstLogin = false;
 
 // ── Register custom protocol for OAuth callbacks ──────────────
 // This makes Windows recognise daytimer:// links and open this app
@@ -366,6 +367,18 @@ ipcMain.on('login-success', (event, payload) => {
     cachedSession = session;
     scheduleRefresh();
   }
+
+  // Detect first-time login per user — if we've never stored their UID
+  // before, mark this session as needing a tour.
+  const seenKey = 'tourSeenUsers';
+  const seenUsers = store.get(seenKey, []);
+  const userId = user && user.id;
+  const isFirstLogin = userId && !seenUsers.includes(userId);
+  if (isFirstLogin) {
+    store.set(seenKey, [...seenUsers, userId]);
+    pendingFirstLogin = true;
+  }
+
   store.set('lastUser', user);
 
   // Close login window and open the app
@@ -375,6 +388,19 @@ ipcMain.on('login-success', (event, payload) => {
   }
 
   createWidget();
+
+  // For first-time users we open the main window straight away so the
+  // tour can run there. The widget sees the same flag and shows a
+  // brief "Welcome — let's take a tour" prompt that opens main on click.
+  if (isFirstLogin) {
+    setTimeout(() => {
+      if (!mainWindow) createMainWindow();
+      // Pass the flag in via load query string
+      mainWindow.webContents.once('did-finish-load', () => {
+        mainWindow.webContents.send('start-tour');
+      });
+    }, 600);
+  }
 });
 
 ipcMain.on('logout', async () => {
@@ -460,6 +486,23 @@ ipcMain.handle('get-theme', () => store.get('theme', 'teal-dark'));
 ipcMain.handle('get-current-user', () => currentUser);
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+ipcMain.handle('is-first-login', () => {
+  const v = pendingFirstLogin;
+  pendingFirstLogin = false; // consume — only true once per session
+  return v;
+});
+
+ipcMain.on('replay-tour', () => {
+  if (!mainWindow) createMainWindow();
+  else { mainWindow.show(); mainWindow.focus(); }
+  const send = () => mainWindow && mainWindow.webContents.send('start-tour');
+  if (mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.once('did-finish-load', send);
+  } else {
+    send();
+  }
+});
 
 ipcMain.handle('check-for-updates', async () => {
   if (!autoUpdater) return { available: false, dev: true };
