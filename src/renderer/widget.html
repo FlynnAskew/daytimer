@@ -15,7 +15,7 @@ body {
   background: transparent;
   overflow: hidden;
   user-select: none;
-  padding: 4px;
+  /* No padding — widget fills the window so Windows can't draw a frame outside it */
 }
 
 .widget {
@@ -24,7 +24,7 @@ body {
   border-radius: 16px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
   overflow: hidden;
-  width: 312px;
+  width: 320px;
   position: relative;
   transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -366,6 +366,7 @@ body {
     // ── Supabase ──────────────────────────────────────────────
     let dbClient = null;
     let dbReady = false;
+    let currentUserId = null;
     try {
       if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
           supabaseConfig.anonKey && !supabaseConfig.anonKey.includes('YOUR_')) {
@@ -373,8 +374,23 @@ body {
           auth: { persistSession: true, autoRefreshToken: true }
         });
         dbReady = true;
+        // Capture the user ID for all inserts
+        dbClient.auth.getSession().then(({ data: { session } }) => {
+          if (session?.user?.id) {
+            currentUserId = session.user.id;
+            console.log('Widget: signed in as', session.user.email, 'uid:', currentUserId);
+          } else {
+            console.warn('Widget: no session found');
+          }
+        });
       }
     } catch (e) { console.error(e); }
+
+    // Helper: stamp user_id on every row before insert
+    function withUid(row) {
+      if (currentUserId) row.user_id = currentUserId;
+      return row;
+    }
 
     // ── DOM refs ──────────────────────────────────────────────
     const widget = document.getElementById('widget');
@@ -698,7 +714,7 @@ body {
 
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([{
+          await dbClient.from('time_entries').insert([withUid({
             task_name: 'Break',
             category: null,
             started_at: pauseBlockStartTime.toISOString(),
@@ -706,7 +722,7 @@ body {
             duration_secs: breakDuration,
             date: todayStr(),
             entry_type: 'break'
-          }]);
+          })]);
         } catch (e) { console.error('Break log failed', e); }
       }
     }
@@ -783,7 +799,7 @@ body {
       const now = new Date();
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([{
+          await dbClient.from('time_entries').insert([withUid({
             task_name: 'Day started',
             category: null,
             started_at: now.toISOString(),
@@ -791,7 +807,7 @@ body {
             duration_secs: 0,
             date: todayStr(),
             entry_type: 'day_start'
-          }]);
+          })]);
         } catch (e) { console.error(e); }
       }
       setActiveMode();
@@ -809,7 +825,7 @@ body {
 
       if (shouldLogBreak) {
         try {
-          await dbClient.from('time_entries').insert([{
+          await dbClient.from('time_entries').insert([withUid({
             task_name: 'Break',
             category: null,
             started_at: pauseBlock.toISOString(),
@@ -817,14 +833,14 @@ body {
             duration_secs: Math.round(pauseDuration),
             date: todayStr(),
             entry_type: 'break'
-          }]);
+          })]);
         } catch (e) { console.error(e); }
       }
 
       // Log the day end
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([{
+          await dbClient.from('time_entries').insert([withUid({
             task_name: isIdle ? 'Day auto-ended (idle)' : 'Day ended',
             category: null,
             started_at: now.toISOString(),
@@ -832,7 +848,7 @@ body {
             duration_secs: 0,
             date: todayStr(),
             entry_type: 'day_end'
-          }]);
+          })]);
         } catch (e) { console.error(e); }
       }
 
@@ -894,7 +910,7 @@ body {
 
       if (dbReady) {
         try {
-          const { error } = await dbClient.from('time_entries').insert([entry]);
+          const { error } = await dbClient.from('time_entries').insert([withUid(entry)]);
           if (error) {
             statusRow.textContent = '⚠ Save failed';
             statusRow.className = 'status-row error';
@@ -994,10 +1010,28 @@ body {
       };
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([entry]);
+          await dbClient.from('time_entries').insert([withUid(entry)]);
         } catch (e) { console.error('Task log failed', e); }
       }
     }
+
+    // ── Smart click-through ───────────────────────────────────
+    // The window is bigger than the visible widget card (because of the
+    // transparent rounded-corner margins). Enable click-through whenever
+    // the pointer leaves the actual card so users can click whatever is
+    // sitting behind the widget.
+    (function setupClickThrough() {
+      let isClickThrough = false;
+      const setCT = (val) => {
+        if (val === isClickThrough) return;
+        isClickThrough = val;
+        ipcRenderer.send('widget-set-clickthrough', val);
+      };
+      // Default to click-through on; mouse-move events still flow with forward:true
+      setCT(true);
+      widget.addEventListener('mouseenter', () => setCT(false));
+      widget.addEventListener('mouseleave', () => setCT(true));
+    })();
 
     // DevTools shortcut
     window.addEventListener('keydown', (e) => {

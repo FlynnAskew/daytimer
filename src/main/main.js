@@ -258,6 +258,18 @@ ipcMain.on('widget-expand', () => {
   if (widgetWindow) widgetWindow.setSize(320, 310, true);
 });
 
+// Smart click-through — renderer reports when pointer is over the visible widget area
+// vs over the transparent margin so that clicks pass through to whatever is underneath.
+ipcMain.on('widget-set-clickthrough', (event, ignore) => {
+  if (!widgetWindow) return;
+  if (ignore) {
+    // forward:true keeps mouse-move events flowing so we can detect re-entry
+    widgetWindow.setIgnoreMouseEvents(true, { forward: true });
+  } else {
+    widgetWindow.setIgnoreMouseEvents(false);
+  }
+});
+
 ipcMain.on('widget-resize', (event, height) => {
   if (widgetWindow) {
     const [w] = widgetWindow.getSize();
