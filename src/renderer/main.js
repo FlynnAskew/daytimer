@@ -596,6 +596,9 @@ async function loadPlanner() {
 
   let planItems = [];
   let entries = [];
+  let calendarEvents = [];     // timed events from MS calendar (today only)
+  let allDayEvents   = [];     // all-day events (rendered as a strip)
+
   if (dbReady) {
     try {
       const [planRes, entryRes] = await Promise.all([
@@ -612,6 +615,67 @@ async function loadPlanner() {
       console.error('Load planner error:', e);
     }
   }
+
+  // Pull calendar events from Microsoft Graph (if connected)
+  try {
+    const connected = await ipcRenderer.invoke('graph-is-connected');
+    if (connected) {
+      // Day boundaries in the user's local timezone, sent as ISO
+      const dayStart = new Date(state.plannerDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(dayStart);
+      dayEnd.setDate(dayEnd.getDate() + 1);
+
+      const result = await ipcRenderer.invoke('graph-list-events', {
+        startISO: dayStart.toISOString(),
+        endISO:   dayEnd.toISOString()
+      });
+      if (result && result.ok) {
+        // Look up any saved category assignments for these events
+        let assignmentMap = {};
+        if (dbReady && result.events.length > 0) {
+          try {
+            const ids = result.events.map(e => e.ms_event_id);
+            const { data: cached } = await dbClient.from('calendar_events')
+              .select('ms_event_id, category')
+              .eq('date', dateStr)
+              .in('ms_event_id', ids);
+            (cached || []).forEach(c => { if (c.category) assignmentMap[c.ms_event_id] = c.category; });
+          } catch (e) { /* table may not exist yet — ignore */ }
+        }
+
+        result.events.forEach(ev => {
+          if (ev.is_cancelled) return;
+          ev.category = assignmentMap[ev.ms_event_id] || null;
+          if (ev.is_all_day) {
+            allDayEvents.push(ev);
+          } else {
+            // Convert to plan-item-like shape so the existing render path works
+            const start = new Date(ev.starts_at);
+            const end   = new Date(ev.ends_at);
+            calendarEvents.push({
+              _isCalendarEvent: true,
+              ms_event_id:   ev.ms_event_id,
+              task_name:     ev.subject,
+              category:      ev.category || null,
+              location:      ev.location,
+              organiser:     ev.organiser,
+              planned_start: pad(start.getHours()) + ':' + pad(start.getMinutes()),
+              planned_end:   pad(end.getHours())   + ':' + pad(end.getMinutes()),
+              date:          dateStr
+            });
+          }
+        });
+      }
+    }
+  } catch (e) {
+    console.error('Calendar fetch failed:', e);
+  }
+
+  // Calendar events are pseudo-plan-items — merge them into planItems
+  // so they go through the same render path. They're rendered with a
+  // distinct visual style in placeItemBlock by checking _isCalendarEvent.
+  planItems = [...planItems, ...calendarEvents];
 
   // Determine the active hour range (extended toggle OR auto-expand if data falls outside default window)
   const needsExtendedForData = (() => {
@@ -650,6 +714,9 @@ async function loadPlanner() {
   const matchScore = calculatePlanMatch(planItems, entries);
   $('planMatchScore').textContent = (matchScore === null ? '—' : matchScore + '%');
 
+  // All-day events strip — only shown if there are any
+  renderAllDayStrip(allDayEvents, dateStr);
+
   // Render the views
   applyPlannerZoom();
   if (state.plannerView === 'split') {
@@ -662,6 +729,44 @@ async function loadPlanner() {
     $('plannerSplit').style.display = 'none';
     renderPlannerGrid($('plannerGridSingle'), state.plannerView, planItems, entries, false);
   }
+}
+
+function renderAllDayStrip(allDayEvents, dateStr) {
+  const strip = $('allDayStrip');
+  if (!strip) return;
+  if (!allDayEvents || allDayEvents.length === 0) {
+    strip.style.display = 'none';
+    strip.innerHTML = '';
+    return;
+  }
+  strip.style.display = 'flex';
+  const items = allDayEvents.map(ev => {
+    const cat = ev.category ? `<span class="all-day-event-cat">${escapeHtml(ev.category)}</span>` : '';
+    return `<div class="all-day-event" data-id="${escapeHtml(ev.ms_event_id)}">📅 ${escapeHtml(ev.subject)} ${cat}</div>`;
+  }).join('');
+  strip.innerHTML = `<span class="all-day-label">All day</span>${items}`;
+
+  // Click to assign category
+  strip.querySelectorAll('.all-day-event').forEach(el => {
+    el.addEventListener('click', () => {
+      const id = el.dataset.id;
+      const ev = allDayEvents.find(e => e.ms_event_id === id);
+      if (!ev) return;
+      // Reuse the same picker, with synthesised time fields
+      openCalendarEventCategoryPicker({
+        _isCalendarEvent: true,
+        ms_event_id:   ev.ms_event_id,
+        task_name:     ev.subject,
+        category:      ev.category || null,
+        location:      ev.location,
+        organiser:     ev.organiser,
+        planned_start: '00:00',
+        planned_end:   '23:59',
+        date:          dateStr,
+        is_all_day:    true
+      });
+    });
+  });
 }
 
 function applyPlannerZoom() {
@@ -857,6 +962,15 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
     block.classList.add('break-block');
   }
 
+  // Calendar events from Microsoft — distinct dotted style + 📅 badge
+  if (item._isCalendarEvent) {
+    block.classList.add('calendar-event-block');
+    if (item.category) {
+      const cat = state.categories.find(c => c.name === item.category);
+      if (cat) block.style.borderLeftColor = cat.colour;
+    }
+  }
+
   // Compact split-view colours (match / mismatch)
   if (compact && mode === 'actual') {
     const match = isActualMatchingPlan(item, planItems);
@@ -865,12 +979,21 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
     else block.classList.add('mismatch');
   }
 
-  block.innerHTML = `
-    <div style="overflow:hidden;min-width:0;flex:1;">
-      <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.task_name)}</div>
-    </div>
-    <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Uncat.')}</div>
-  `;
+  if (item._isCalendarEvent) {
+    block.innerHTML = `
+      <div style="overflow:hidden;min-width:0;flex:1;">
+        <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📅 ${escapeHtml(item.task_name)}</div>
+      </div>
+      <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Set…')}</div>
+    `;
+  } else {
+    block.innerHTML = `
+      <div style="overflow:hidden;min-width:0;flex:1;">
+        <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.task_name)}</div>
+      </div>
+      <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Uncat.')}</div>
+    `;
+  }
 
   // slotContent needs relative positioning so child can be absolute
   slotContent.style.position = 'relative';
@@ -893,7 +1016,8 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
   }
 
   // Drag-to-resize and drag-to-move are only available on the single plan view
-  if (isPlan && !compact) {
+  // (and never on calendar events — those are read-only)
+  if (isPlan && !compact && !item._isCalendarEvent) {
     attachResizeHandle(block, item, PX_PER_MIN);
     attachDragToMove(block, item, PX_PER_MIN);
   }
@@ -904,7 +1028,11 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
       block.dataset.wasDragged = 'false';
       return;
     }
-    if (isPlan) openEditPlanItem(item);
+    if (item._isCalendarEvent) {
+      openCalendarEventCategoryPicker(item);
+    } else if (isPlan) {
+      openEditPlanItem(item);
+    }
   });
 }
 
@@ -1421,6 +1549,66 @@ $('plannerZoom').addEventListener('input', (e) => {
 });
 
 // ═══════════════════════════════════════════════════════════
+//  CALENDAR EVENT CATEGORY PICKER
+// ═══════════════════════════════════════════════════════════
+function openCalendarEventCategoryPicker(item) {
+  const catOptions = '<option value="">— None —</option>' +
+    state.categories.map(c => `<option value="${escapeHtml(c.name)}" ${c.name === item.category ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+
+  const detailLine = [
+    item.organiser ? 'Organiser: ' + item.organiser : null,
+    item.location  ? 'Location: '  + item.location  : null,
+    item.planned_start + '–' + item.planned_end
+  ].filter(Boolean).join(' · ');
+
+  openModal(`
+    <div class="modal-title">📅 ${escapeHtml(item.task_name)}</div>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:14px;">${escapeHtml(detailLine)}</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Category for this event</div>
+        <select class="field-input" id="calEventCategory" style="width:100%;">${catOptions}</select>
+      </div>
+      <div style="font-size:11px;color:var(--text-dim);line-height:1.5;">
+        Calendar events are read-only — to change the time, edit it in Outlook.
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn primary" id="calEventSaveBtn">Save</button>
+    </div>
+  `);
+
+  $('calEventSaveBtn').addEventListener('click', async () => {
+    const newCategory = $('calEventCategory').value || null;
+    if (!dbReady) { closeModal(); return; }
+    try {
+      // Upsert into calendar_events. The unique constraint on
+      // (user_id, ms_event_id) means we either insert or update the row.
+      const row = withUid({
+        ms_event_id: item.ms_event_id,
+        subject:     item.task_name,
+        organiser:   item.organiser  || null,
+        location:    item.location   || null,
+        starts_at:   new Date(item.date + 'T' + item.planned_start + ':00').toISOString(),
+        ends_at:     new Date(item.date + 'T' + item.planned_end   + ':00').toISOString(),
+        is_all_day:  !!item.is_all_day,
+        date:        item.date,
+        category:    newCategory,
+        last_synced_at: new Date().toISOString()
+      });
+      const { error } = await dbClient.from('calendar_events')
+        .upsert(row, { onConflict: 'user_id,ms_event_id' });
+      if (error) throw error;
+    } catch (e) {
+      console.error('Save calendar category failed:', e);
+    }
+    closeModal();
+    loadPlanner();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════
 //  ANALYSIS PAGE
 // ═══════════════════════════════════════════════════════════
 async function loadInsights() {
@@ -1831,6 +2019,78 @@ function loadSettings() {
   if (updBtn && !updBtn.dataset.wired) {
     updBtn.addEventListener('click', checkForUpdates);
     updBtn.dataset.wired = 'true';
+  }
+
+  // ── Microsoft Calendar integration ─────────────────────────
+  setupMsIntegration();
+}
+
+async function setupMsIntegration() {
+  const connectBtn    = $('msConnectBtn');
+  const disconnectBtn = $('msDisconnectBtn');
+  const status        = $('msStatus');
+  const lookahead     = $('msLookahead');
+  if (!connectBtn || !lookahead) return;
+
+  // Restore saved lookahead (default 7 days)
+  try {
+    const saved = localStorage.getItem('msLookahead');
+    lookahead.value = saved !== null ? saved : '7';
+  } catch (e) { lookahead.value = '7'; }
+
+  if (!lookahead.dataset.wired) {
+    lookahead.addEventListener('change', () => {
+      try { localStorage.setItem('msLookahead', lookahead.value); } catch (e) {}
+      // Refresh planner so it picks up the new range
+      if (state.currentPage === 'planner' || typeof loadPlanner === 'function') loadPlanner();
+    });
+    lookahead.dataset.wired = 'true';
+  }
+
+  const refreshConnState = async () => {
+    const connected = await ipcRenderer.invoke('graph-is-connected');
+    status.textContent = connected ? 'Connected' : 'Not connected';
+    status.style.color = connected ? 'var(--accent)' : 'var(--text-dim)';
+    connectBtn.style.display    = connected ? 'none' : '';
+    disconnectBtn.style.display = connected ? '' : 'none';
+  };
+
+  await refreshConnState();
+
+  if (!connectBtn.dataset.wired) {
+    connectBtn.addEventListener('click', async () => {
+      status.textContent = 'Opening Microsoft sign-in…';
+      try {
+        await ipcRenderer.invoke('graph-connect');
+      } catch (e) {
+        status.textContent = '⚠ ' + e.message;
+      }
+    });
+    connectBtn.dataset.wired = 'true';
+  }
+  if (!disconnectBtn.dataset.wired) {
+    disconnectBtn.addEventListener('click', async () => {
+      await ipcRenderer.invoke('graph-disconnect');
+      await refreshConnState();
+      // Refresh planner so events disappear
+      if (typeof loadPlanner === 'function') loadPlanner();
+    });
+    disconnectBtn.dataset.wired = 'true';
+  }
+
+  // Listen for changes from the main process (e.g. after auth callback)
+  if (!window._msListenerWired) {
+    ipcRenderer.on('graph-connection-changed', async () => {
+      await refreshConnState();
+      if (typeof loadPlanner === 'function') loadPlanner();
+    });
+    ipcRenderer.on('graph-auth-error', (_evt, msg) => {
+      if ($('msStatus')) {
+        $('msStatus').textContent = '⚠ ' + msg;
+        $('msStatus').style.color = 'var(--danger)';
+      }
+    });
+    window._msListenerWired = true;
   }
 }
 

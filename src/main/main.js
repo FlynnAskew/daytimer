@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, screen, dialog, shell } = require('electron');
 const path = require('path');
 const Store = require('electron-store');
+const graph = require('./graph');
 
 // Auto-updater (only in packaged builds)
 let autoUpdater = null;
@@ -66,7 +67,20 @@ app.on('open-url', (event, url) => {
 
 function handleDeepLink(url) {
   console.log('Deep link received:', url);
-  // Pass the full URL to the login window
+  // Route by host/path: graph callbacks go to the Graph module,
+  // everything else is treated as a Supabase auth callback.
+  try {
+    const u = new URL(url);
+    if (u.host === 'graph-callback' || u.pathname === '/graph-callback') {
+      try { graph.handleAuthCallback(url); } catch (e) { console.error('graph callback failed', e); }
+      // Bring the main app to the front so the user sees the connection update
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.focus();
+      else if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.focus();
+      return;
+    }
+  } catch (e) { /* fall through to Supabase handling */ }
+
+  // Default: Supabase auth callback into the login window
   if (loginWindow && !loginWindow.isDestroyed()) {
     loginWindow.webContents.send('oauth-callback', url);
     loginWindow.focus();
@@ -197,6 +211,24 @@ function isPositionOnVisibleDisplay(x, y) {
 //  APP LIFECYCLE
 // ══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
+  // Initialise Microsoft Graph integration. Tenant + client IDs come
+  // from the same Azure app registration used for Supabase sign-in.
+  // We read them from src/ms-config.js (generated at build time from
+  // GitHub secrets) and fall back to existing supabase-config if needed.
+  let msTenantId = null, msClientId = null;
+  try {
+    const msCfg = require('../ms-config');
+    msTenantId = msCfg.tenantId || msCfg.tenant_id || null;
+    msClientId = msCfg.clientId || msCfg.client_id || null;
+  } catch (e) { /* ms-config.js not present in dev */ }
+
+  graph.init({
+    store,
+    getMainWindow: () => mainWindow,
+    tenantId: msTenantId,
+    clientId: msClientId
+  });
+
   // Always start with login
   createLoginWindow();
 

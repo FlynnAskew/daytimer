@@ -37,17 +37,14 @@ jobs:
         shell: pwsh
         env:
           MS_CLIENT_ID: ${{ secrets.MS_CLIENT_ID }}
+          MS_TENANT_ID: ${{ secrets.MS_TENANT_ID }}
         run: |
-          if ($env:MS_CLIENT_ID -and $env:MS_CLIENT_ID -ne '') {
-            $content = @"
-          const MS_CONFIG = {
-            clientId: '$env:MS_CLIENT_ID',
-            redirectUri: 'http://localhost:3000/auth-callback',
-            scopes: ['Tasks.ReadWrite', 'User.Read', 'offline_access']
-          };
-          module.exports = MS_CONFIG;
-          "@
-            Set-Content -Path "src/ms-config.js" -Value $content
+          if ($env:MS_CLIENT_ID -and $env:MS_CLIENT_ID -ne '' -and $env:MS_TENANT_ID -and $env:MS_TENANT_ID -ne '') {
+            $cfg = "const MS_CONFIG = { clientId: '$env:MS_CLIENT_ID', tenantId: '$env:MS_TENANT_ID' }; module.exports = MS_CONFIG;"
+            Set-Content -Path "src/ms-config.js" -Value $cfg
+            Write-Host "Microsoft config written."
+          } else {
+            Write-Host "MS_CLIENT_ID or MS_TENANT_ID not set; skipping ms-config injection."
           }
 
       - name: Install dependencies

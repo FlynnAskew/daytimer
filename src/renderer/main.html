@@ -161,6 +161,9 @@
           </label>
         </div>
 
+        <!-- All-day events strip (only shown if there are all-day events) -->
+        <div id="allDayStrip" class="all-day-strip" style="display:none;"></div>
+
         <div class="planner-single" id="plannerSingle">
           <div class="planner-grid" id="plannerGridSingle"></div>
         </div>
@@ -451,6 +454,34 @@
           <div class="section-subtitle">Add, rename or remove. These appear in the widget dropdown and in charts.</div>
           <div class="cat-list" id="categoryList"></div>
           <button class="add-cat-btn" id="addCategoryBtn">+ Add Category</button>
+        </div>
+
+        <div class="settings-section">
+          <div class="section-title">Integrations</div>
+          <div class="section-subtitle">Connect your work account to pull events into the day plan.</div>
+          <div class="field-row">
+            <div class="field-label">Microsoft Calendar</div>
+            <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+              <span id="msStatus" style="font-size:13px;color:var(--text-dim);">Not connected</span>
+              <button class="modal-btn" id="msConnectBtn" style="font-size:12px;">Connect</button>
+              <button class="modal-btn" id="msDisconnectBtn" style="font-size:12px;display:none;border-color:var(--danger);color:var(--danger);">Disconnect</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Lookahead</div>
+            <select class="field-input" id="msLookahead" style="max-width:220px;">
+              <option value="0">Today only</option>
+              <option value="7">Today + 7 days</option>
+              <option value="14">Today + 14 days</option>
+              <option value="30">Today + 30 days</option>
+            </select>
+          </div>
+          <div class="field-row">
+            <div class="field-label"></div>
+            <div id="msHelpText" style="font-size:11px;color:var(--text-dim);max-width:420px;line-height:1.5;">
+              When connected, your Outlook events appear on the Day Plan as read-only blocks. Click any event to assign a category — that category is then used in your tracker totals.
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">
