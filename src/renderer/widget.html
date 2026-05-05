@@ -1065,23 +1065,9 @@ body {
       }
     }
 
-    // ── Smart click-through ───────────────────────────────────
-    // The window is bigger than the visible widget card (because of the
-    // transparent rounded-corner margins). Enable click-through whenever
-    // the pointer leaves the actual card so users can click whatever is
-    // sitting behind the widget.
-    (function setupClickThrough() {
-      let isClickThrough = false;
-      const setCT = (val) => {
-        if (val === isClickThrough) return;
-        isClickThrough = val;
-        ipcRenderer.send('widget-set-clickthrough', val);
-      };
-      // Default to click-through on; mouse-move events still flow with forward:true
-      setCT(true);
-      widget.addEventListener('mouseenter', () => setCT(false));
-      widget.addEventListener('mouseleave', () => setCT(true));
-    })();
+    // (Click-through removed in v5.1.3 — the widget now fills the entire
+    // window so there's no transparent margin to click through. Trying to
+    // toggle ignoreMouseEvents was breaking drag and titlebar interaction.)
 
     // DevTools shortcut
     window.addEventListener('keydown', (e) => {
