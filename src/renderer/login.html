@@ -298,7 +298,7 @@ function showLoading() {
     const { data: { session } } = await dbClient.auth.getSession();
     if (session && session.user.email && session.user.email.endsWith('@howleruk.com')) {
       showLoading();
-      setTimeout(() => ipcRenderer.send('login-success', session.user), 400);
+      setTimeout(() => ipcRenderer.send('login-success', { user: session.user, session }), 400);
     } else {
       setStatus('');
     }
@@ -392,7 +392,7 @@ ipcRenderer.on('oauth-callback', async (event, url) => {
     }
 
     showLoading();
-    setTimeout(() => ipcRenderer.send('login-success', session.user), 500);
+    setTimeout(() => ipcRenderer.send('login-success', { user: session.user, session }), 500);
   } catch (e) {
     console.error('Callback handling failed:', e);
     setStatus('Sign-in failed: ' + e.message, 'error');

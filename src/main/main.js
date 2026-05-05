@@ -222,8 +222,25 @@ app.on('open-url', (event, url) => {
 // ══════════════════════════════════════════════════════════════
 //  IPC: LOGIN FLOW
 // ══════════════════════════════════════════════════════════════
-ipcMain.on('login-success', (event, user) => {
+// ── Session broker — main is the source of truth for auth ────
+// Each Electron renderer has its own localStorage, so the widget can't
+// see the login window's Supabase session. The login renderer pushes
+// the session here, and any other renderer pulls it via get-session.
+let cachedSession = null;
+
+ipcMain.handle('get-session', () => cachedSession);
+
+ipcMain.on('set-session', (_evt, session) => {
+  cachedSession = session;
+});
+
+ipcMain.on('login-success', (event, payload) => {
+  // payload may be the user object (legacy) or { user, session } (new)
+  const user    = payload?.user    || payload;
+  const session = payload?.session || null;
+
   currentUser = user;
+  if (session) cachedSession = session;
   store.set('lastUser', user);
 
   // Close login window and open the app
@@ -237,6 +254,7 @@ ipcMain.on('login-success', (event, user) => {
 
 ipcMain.on('logout', async () => {
   currentUser = null;
+  cachedSession = null;
   store.delete('lastUser');
 
   // Close all windows

@@ -12,34 +12,65 @@ try {
   console.warn('supabase-config.js not found');
 }
 
-// ── Initialise Supabase with persistent session ───────────────
+// ── Initialise Supabase ────────────────────────────────────────
+// Each Electron window has its own localStorage so we can't rely on
+// persistSession to share auth across windows. Pull the session from
+// the main process via IPC and apply it to this window's client.
 let dbClient = null;
 let dbReady = false;
 let currentUser = null;
 let currentUserId = null;
 
-try {
-  if (supabaseConfig.url && !supabaseConfig.url.includes('YOUR_') &&
-      supabaseConfig.anonKey && !supabaseConfig.anonKey.includes('YOUR_')) {
+(async () => {
+  try {
+    if (!supabaseConfig.url || supabaseConfig.url.includes('YOUR_') ||
+        !supabaseConfig.anonKey || supabaseConfig.anonKey.includes('YOUR_')) {
+      console.warn('Main: Supabase config missing');
+      return;
+    }
+
     dbClient = window.supabase.createClient(supabaseConfig.url, supabaseConfig.anonKey, {
-      auth: { persistSession: true, autoRefreshToken: true }
+      auth: { persistSession: false, autoRefreshToken: false }
     });
+
+    const session = await ipcRenderer.invoke('get-session');
+    if (!session) {
+      console.warn('Main: no session from main process — auth not ready');
+      return;
+    }
+
+    const { error } = await dbClient.auth.setSession({
+      access_token: session.access_token,
+      refresh_token: session.refresh_token
+    });
+    if (error) {
+      console.error('Main: setSession failed', error);
+      return;
+    }
+
+    currentUserId = session.user.id;
+    currentUser = session.user;
     dbReady = true;
-    // Capture user ID for inserts
-    dbClient.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.id) {
-        currentUserId = session.user.id;
-        console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
-      }
-    });
+    window.dbClient = dbClient;
+    window.currentUserId = currentUserId;
+    console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
+
+    // Re-load any data that was attempted before auth was ready
+    try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
+    try { if (typeof loadPlanner    === 'function') await loadPlanner();    } catch (e) {}
+    try { if (typeof loadTracker    === 'function') await loadTracker();    } catch (e) {}
+  } catch (e) {
+    console.error('Main: Supabase init failed:', e);
   }
-} catch (e) {
-  console.error('Supabase init failed:', e);
-}
+})();
 
 // Helper: stamp user_id on every row before insert
 function withUid(row) {
-  if (currentUserId) row.user_id = currentUserId;
+  if (!currentUserId) {
+    console.error('withUid called before auth ready — row will be rejected', row);
+  } else {
+    row.user_id = currentUserId;
+  }
   return row;
 }
 
