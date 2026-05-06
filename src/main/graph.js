@@ -272,16 +272,23 @@ async function listTaskLists() {
 }
 
 async function listTasksInList(listId, includeCompleted = false) {
-  // Filter out completed tasks by default to keep payload small
-  const filter = includeCompleted ? '' : `&$filter=status ne 'completed'`;
-  const url = `/me/todo/lists/${encodeURIComponent(listId)}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime,bodyLastModifiedDateTime${filter}`;
+  // Build the URL with URLSearchParams to ensure proper encoding.
+  // We filter completed tasks client-side rather than via $filter — the
+  // Graph API's URL parser is fussy about quote-encoded filter values
+  // ("RequestBroker--ParseUri" errors), and the small overhead of
+  // fetching a few extra rows is negligible.
+  const params = new URLSearchParams({
+    '$top':    '100',
+    '$select': 'id,title,status,importance,dueDateTime,createdDateTime'
+  });
+  const url = `/me/todo/lists/${encodeURIComponent(listId)}/tasks?${params.toString()}`;
   const res = await graphFetch(url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
     throw new Error(`Tasks fetch failed: ${res.status} ${txt}`);
   }
   const data = await res.json();
-  return (data.value || []).map(t => ({
+  let tasks = (data.value || []).map(t => ({
     id:           t.id,
     list_id:      listId,
     title:        t.title || '(untitled)',
@@ -290,6 +297,10 @@ async function listTasksInList(listId, includeCompleted = false) {
     due_date:     t.dueDateTime?.dateTime || null,
     created_at:   t.createdDateTime || null
   }));
+  if (!includeCompleted) {
+    tasks = tasks.filter(t => t.status !== 'completed');
+  }
+  return tasks;
 }
 
 async function completeTask(listId, taskId) {
