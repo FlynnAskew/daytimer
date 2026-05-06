@@ -272,15 +272,21 @@ async function listTaskLists() {
 }
 
 async function listTasksInList(listId, includeCompleted = false) {
-  // IMPORTANT: do NOT use URLSearchParams for OData params. URLSearchParams
-  // encodes '$' to '%24', and Microsoft Graph's OData parser does not
-  // accept the encoded form — it expects the literal '$top' / '$select'
-  // characters and returns "RequestBroker--ParseUri" 400 errors for the
-  // encoded version. Build the query string manually instead.
   const url = `/me/todo/lists/${listId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime`;
+  const fullUrl = 'https://graph.microsoft.com/v1.0' + url;
+  const win = getMainWindow && getMainWindow();
+  const sendLog = (level, msg) => {
+    console[level === 'error' ? 'error' : 'log']('[graph]', msg);
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('updater-log', { level, line: '[graph] ' + msg });
+    }
+  };
+
+  sendLog('info', `listTasksInList listId="${listId}" len=${listId?.length} url=${fullUrl}`);
   const res = await graphFetch(url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
+    sendLog('error', `listTasksInList FAILED status=${res.status} body=${txt}`);
     throw new Error(`Tasks fetch failed: ${res.status} ${txt}`);
   }
   const data = await res.json();
