@@ -271,21 +271,8 @@ async function listTaskLists() {
   }));
 }
 
-// Encode a Graph entity ID for safe inclusion in a URL path segment.
-// Graph IDs are base64-ish strings that may contain '=' and '+' which are
-// unsafe in URL paths (query parsers interpret '=' as key-value separator
-// even mid-path on some routing layers, and '+' is sometimes interpreted
-// as space). We don't use encodeURIComponent because that mangles other
-// characters that Graph expects to receive raw. This minimal encoding is
-// the same approach the official Microsoft Graph JS SDK uses.
-function encodeGraphId(id) {
-  if (!id) return '';
-  return id.replace(/=/g, '%3D').replace(/\+/g, '%2B');
-}
-
 async function listTasksInList(listId, includeCompleted = false) {
-  const encodedId = encodeGraphId(listId);
-  const url = `/me/todo/lists/${encodedId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime`;
+  const url = `/me/todo/lists/${listId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime`;
   const fullUrl = 'https://graph.microsoft.com/v1.0' + url;
   const win = getMainWindow && getMainWindow();
   const sendLog = (level, msg) => {
@@ -319,8 +306,9 @@ async function listTasksInList(listId, includeCompleted = false) {
 }
 
 async function completeTask(listId, taskId) {
+  // Same as above — IDs are already URL-safe, don't double-encode.
   const res = await graphFetch(
-    `/me/todo/lists/${encodeGraphId(listId)}/tasks/${encodeGraphId(taskId)}`,
+    `/me/todo/lists/${listId}/tasks/${taskId}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
