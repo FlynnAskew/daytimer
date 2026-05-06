@@ -365,11 +365,8 @@ html, body {
 .view-tab.active,
 .range-tab.active { background: var(--accent-soft); color: var(--accent); }
 
-/* Troop Mode bar (top of main app) */
+/* Troop Mode bar (top of main app — scrolls with content) */
 .troop-bar {
-  position: sticky;
-  top: 0;
-  z-index: 30;
   margin: 0 0 14px 0;
   padding: 8px 14px;
   background: color-mix(in srgb, var(--accent-soft) 70%, transparent);

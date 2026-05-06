@@ -482,6 +482,20 @@
               <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Shows first names + current category of @howleruk.com colleagues who are actively tracking.</div>
             </div>
           </div>
+          <div class="field-row">
+            <div class="field-label">Check in if idle</div>
+            <div>
+              <select class="field-input" id="idleCheckInterval" style="max-width:200px;">
+                <option value="0">Off</option>
+                <option value="15">Every 15 minutes</option>
+                <option value="30">Every 30 minutes</option>
+                <option value="45">Every 45 minutes</option>
+                <option value="60" selected>Every hour</option>
+                <option value="120">Every 2 hours</option>
+              </select>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Pops a "still working on this?" prompt if your task hasn't changed in this period.</div>
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">

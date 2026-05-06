@@ -2188,10 +2188,23 @@ function loadSettings() {
         if (troopT.checked) localStorage.removeItem('troopHidden');
         else localStorage.setItem('troopHidden', '1');
       } catch (e) {}
-      // Force-refresh the bar with current roster
       if (window.dtTroop) updateTroopBar(window.dtTroop.getRoster());
     });
     troopT.dataset.wired = 'true';
+  }
+
+  // ── Idle check-in interval ─────────────────────────────────
+  const idleSel = $('idleCheckInterval');
+  if (idleSel && !idleSel.dataset.wired) {
+    let saved = '60';
+    try { saved = localStorage.getItem('idleCheckInterval') || '60'; } catch (e) {}
+    idleSel.value = saved;
+    idleSel.addEventListener('change', () => {
+      try { localStorage.setItem('idleCheckInterval', idleSel.value); } catch (e) {}
+      // Notify the widget so it picks up the new interval immediately
+      ipcRenderer.send('idle-interval-changed', parseInt(idleSel.value, 10) || 0);
+    });
+    idleSel.dataset.wired = 'true';
   }
 }
 

@@ -436,6 +436,13 @@ ipcMain.on('widget-minimise', () => {
   if (widgetWindow) widgetWindow.setSize(320, 48, true);
 });
 
+// Forward idle-interval changes from main app → widget so it can re-arm
+ipcMain.on('idle-interval-changed', (_evt, mins) => {
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.webContents.send('idle-interval-changed', mins);
+  }
+});
+
 ipcMain.on('widget-hide', () => {
   // The widget may not exist yet on first-login (tour fires very early).
   // Retry a few times so the hide actually lands when the window appears.

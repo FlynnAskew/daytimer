@@ -621,6 +621,30 @@ body {
         return cat?.colour || cat?.color || 'var(--accent)';
       } catch (e) { return 'var(--accent)'; }
     }
+
+    // Update the status dot to reflect the current task's category colour.
+    // Falls back to the theme accent when no category is selected. Paused
+    // still wins (amber) and idle (no day started) still wins (grey).
+    function updateStatusDotColour() {
+      const dot = document.getElementById('statusDot');
+      if (!dot) return;
+      // If paused or idle, let those classes handle the colour
+      if (dot.classList.contains('paused') || dot.classList.contains('idle')) {
+        dot.style.background = '';
+        dot.style.boxShadow  = '';
+        return;
+      }
+      const cat = categorySelect.value;
+      if (cat) {
+        const colour = categoryColourSafe(cat);
+        dot.style.background = colour;
+        dot.style.boxShadow  = `0 0 6px ${colour}`;
+      } else {
+        // No category — clear inline style and let CSS default kick in
+        dot.style.background = '';
+        dot.style.boxShadow  = '';
+      }
+    }
     function escapeHtmlSafe(s) {
       return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
     }
@@ -727,6 +751,7 @@ body {
       startTime = new Date();
       seconds = 0;
       taskInput.focus();
+      updateStatusDotColour();
     }
 
     function setPausedMode() {
@@ -754,6 +779,11 @@ body {
     function setUnpausedMode() {
       nextBtn.textContent = 'Next Task →';
       nextBtn.classList.remove('end-day');
+      // Clear the rotating break message
+      try {
+        statusRow.textContent = '';
+        statusRow.className = 'status-row';
+      } catch (e) {}
     }
 
     checkDayStatus();
@@ -899,6 +929,8 @@ body {
       pauseBtn.classList.toggle('active', isPaused);
       timerDisplay.classList.toggle('paused', isPaused);
       statusDot.classList.toggle('paused', isPaused);
+      // After class toggle, refresh the inline colour
+      updateStatusDotColour();
 
       if (isPaused) {
         pauseBlockStartTime = new Date();
@@ -988,6 +1020,57 @@ body {
         endDay(true);
       }
     }
+
+    // ── Task check-in: "still working on this?" prompt ────────
+    // Fires after configured minutes of unchanged task input, while
+    // the timer is running and not paused. Lets people know if they
+    // forgot to log a switch.
+    let lastCheckInPrompt = 0;
+    let checkInTaskSnapshot = '';
+    function getCheckInIntervalMs() {
+      let mins = 60;
+      try {
+        const v = parseInt(localStorage.getItem('idleCheckInterval') || '60', 10);
+        if (!isNaN(v)) mins = v;
+      } catch (e) {}
+      return mins * 60 * 1000;
+    }
+    function checkInTick() {
+      if (!dayStarted || isPaused) return;
+      const intervalMs = getCheckInIntervalMs();
+      if (intervalMs <= 0) return; // off
+      const taskNow = (taskInput.value || '').trim();
+      if (!taskNow) return; // no task, no prompt
+      // Reset baseline whenever task text changes
+      if (taskNow !== checkInTaskSnapshot) {
+        checkInTaskSnapshot = taskNow;
+        lastCheckInPrompt = Date.now();
+        return;
+      }
+      // Same task as last check — has enough time passed?
+      if (Date.now() - lastCheckInPrompt < intervalMs) return;
+      lastCheckInPrompt = Date.now();
+      // Show a non-blocking toast
+      try {
+        if (window.dtFun) {
+          const messages = [
+            `Still on "${taskNow}"? Tap Next Task if you've moved on.`,
+            `Quick check-in — still working on "${taskNow}"?`,
+            `${Math.round(intervalMs/60000)} mins on "${taskNow}". Still going?`
+          ];
+          const msg = messages[Math.floor(Math.random() * messages.length)];
+          window.dtFun.toast(msg, { emoji: '👀', duration: 6000 });
+        }
+      } catch (e) {}
+    }
+    setInterval(checkInTick, 60000); // check every minute, fires when due
+
+    // Listen for setting changes from the main app
+    ipcRenderer.on('idle-interval-changed', () => {
+      // Reset the snapshot so the new interval applies cleanly
+      checkInTaskSnapshot = '';
+      lastCheckInPrompt = Date.now();
+    });
 
     // Track user activity
     ['mousemove', 'keydown', 'click'].forEach(evt => {
@@ -1127,6 +1210,9 @@ body {
       timerDisplay.textContent = '00:00:00';
       timerDisplay.classList.remove('paused');
       statusDot.classList.remove('paused');
+      // Clear category-coloured inline style
+      statusDot.style.background = '';
+      statusDot.style.boxShadow  = '';
       pauseBtn.textContent = 'Pause';
       pauseBtn.classList.remove('active');
       setStartDayMode();
@@ -1147,13 +1233,6 @@ body {
         setTimeout(() => taskInput.style.borderColor = '', 600);
         return;
       }
-
-      // 🐒 Howler easter egg: typing "howler" in a task → a monkey waves
-      try {
-        if (/howler/i.test(task) && window.dtFun) {
-          window.dtFun.toast('🐒 Howler in the house', { emoji: '', duration: 2500 });
-        }
-      } catch (e) {}
 
       const endTime = new Date();
       const duration = seconds;
@@ -1205,6 +1284,7 @@ body {
       clearTimeout(upcomingUpdateTimer);
       upcomingUpdateTimer = setTimeout(updateUpcomingDisplay, 500);
     }
+    let howlerEggFired = false;
     taskInput.addEventListener('input', () => {
       scheduleUpcomingUpdate();
       try {
@@ -1212,9 +1292,57 @@ body {
           window.dtTroop.update({ task: taskInput.value.trim() || null });
         }
       } catch (e) {}
+      // 🐒 Howler easter egg — fire when "howler" first appears in the input.
+      // Reset the flag if the word is no longer there, so it can fire again
+      // next time the user types it.
+      try {
+        const has = /howler/i.test(taskInput.value);
+        if (has && !howlerEggFired) {
+          howlerEggFired = true;
+          floatEmoji('🐒', taskInput);
+        } else if (!has && howlerEggFired) {
+          howlerEggFired = false;
+        }
+      } catch (e) {}
     });
+
+    // Float a single emoji up from a target element and fade away.
+    function floatEmoji(emoji, anchor) {
+      try {
+        const rect = (anchor && anchor.getBoundingClientRect) ? anchor.getBoundingClientRect() : null;
+        const el = document.createElement('div');
+        el.textContent = emoji;
+        el.style.cssText = `
+          position: fixed;
+          z-index: 99999;
+          font-size: 36px;
+          pointer-events: none;
+          transition: transform 1.4s cubic-bezier(0.22, 1, 0.36, 1), opacity 1.4s ease-out;
+          will-change: transform, opacity;
+        `;
+        const startX = rect ? rect.left + rect.width / 2 - 18 : window.innerWidth / 2;
+        const startY = rect ? rect.top - 4 : window.innerHeight / 2;
+        el.style.left = startX + 'px';
+        el.style.top  = startY + 'px';
+        el.style.opacity = '0';
+        el.style.transform = 'translateY(0) scale(0.4) rotate(-10deg)';
+        document.body.appendChild(el);
+        // Trigger animation on next frame
+        requestAnimationFrame(() => {
+          el.style.opacity = '1';
+          el.style.transform = 'translateY(-50px) scale(1.2) rotate(8deg)';
+          // Then fade out
+          setTimeout(() => {
+            el.style.opacity = '0';
+            el.style.transform = 'translateY(-90px) scale(0.9) rotate(-4deg)';
+          }, 700);
+        });
+        setTimeout(() => el.remove(), 1600);
+      } catch (e) {}
+    }
     categorySelect.addEventListener('change', () => {
       scheduleUpcomingUpdate();
+      updateStatusDotColour();
       try {
         if (window.dtTroop && dayStarted && !isPaused) {
           window.dtTroop.update({ category: categorySelect.value || null });
