@@ -2971,7 +2971,6 @@ async function renderPlanAdherence() {
 //  TO-DO LIST
 // ═══════════════════════════════════════════════════════════
 let todoState = {
-  source: 'local',     // 'local' or 'ms'
   showDone: false,
   todos: []
 };
@@ -2986,15 +2985,164 @@ async function loadTodos() {
       ).join('');
   }
 
-  if (todoState.source === 'local') {
-    $('todoLocalView').style.display = 'block';
-    $('todoMsView').style.display = 'none';
-    await loadLocalTodos();
-  } else {
-    $('todoLocalView').style.display = 'none';
-    $('todoMsView').style.display = 'block';
-    renderMsStatus();
+  // Load both columns in parallel
+  await Promise.all([
+    loadLocalTodos(),
+    loadMsTodos()
+  ]);
+}
+
+// ── Microsoft To Do ─────────────────────────────────────────
+async function loadMsTodos() {
+  const connectEl = $('msTodoConnect');
+  const listsEl   = $('msTodoLists');
+  const loadingEl = $('msTodoLoading');
+  const errorEl   = $('msTodoError');
+  const refreshBtn = $('todoMsRefreshBtn');
+  if (!connectEl || !listsEl || !loadingEl || !errorEl) return;
+
+  // Hide everything to start
+  connectEl.style.display = 'none';
+  listsEl.style.display   = 'none';
+  errorEl.style.display   = 'none';
+
+  // Check connection
+  let connected = false;
+  try { connected = await ipcRenderer.invoke('graph-is-connected'); } catch (e) {}
+
+  if (!connected) {
+    connectEl.style.display = 'block';
+    if (refreshBtn) refreshBtn.style.display = 'none';
+    return;
   }
+
+  if (refreshBtn) refreshBtn.style.display = '';
+  loadingEl.style.display = 'block';
+
+  try {
+    const listsRes = await ipcRenderer.invoke('graph-list-todo-lists');
+    if (!listsRes || !listsRes.ok) {
+      throw new Error(listsRes?.error || 'Failed to load lists');
+    }
+
+    // Fetch tasks for each list in parallel
+    const tasksByList = await Promise.all(
+      listsRes.lists.map(async (list) => {
+        const tasksRes = await ipcRenderer.invoke('graph-list-todo-tasks', { listId: list.id, includeCompleted: false });
+        return {
+          list,
+          tasks: tasksRes && tasksRes.ok ? tasksRes.tasks : []
+        };
+      })
+    );
+
+    loadingEl.style.display = 'none';
+    listsEl.style.display = 'block';
+    renderMsTodoLists(tasksByList);
+  } catch (e) {
+    loadingEl.style.display = 'none';
+    errorEl.style.display = 'block';
+    $('msTodoErrorText').textContent = '⚠ ' + e.message;
+  }
+}
+
+function renderMsTodoLists(tasksByList) {
+  const container = $('msTodoLists');
+  if (!container) return;
+
+  // Show non-empty lists first, then empty ones
+  const sortedLists = [...tasksByList].sort((a, b) => {
+    if (a.tasks.length === 0 && b.tasks.length > 0) return 1;
+    if (b.tasks.length === 0 && a.tasks.length > 0) return -1;
+    return 0;
+  });
+
+  if (sortedLists.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:30px;"><div>No task lists found.</div></div>`;
+    return;
+  }
+
+  // Skip totally empty lists by default — would clutter the view
+  const lists = sortedLists.filter(l => l.tasks.length > 0);
+  if (lists.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:30px;"><div>🎉 All caught up — no open tasks.</div></div>`;
+    return;
+  }
+
+  container.innerHTML = lists.map(({ list, tasks }) => `
+    <div class="ms-todo-list">
+      <div class="ms-todo-list-name">
+        <span>${escapeHtml(list.name)}</span>
+        <span class="ms-todo-list-count">${tasks.length}</span>
+      </div>
+      ${tasks.map(t => msTodoTaskHtml(t, list.id)).join('')}
+    </div>
+  `).join('');
+
+  // Wire up checkbox-tick (mark complete) + drag to plan
+  container.querySelectorAll('.ms-todo-task').forEach(el => {
+    const checkbox = el.querySelector('.ms-todo-checkbox');
+    if (checkbox) {
+      checkbox.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const listId = el.dataset.listId;
+        const taskId = el.dataset.taskId;
+        el.classList.add('completing');
+        try {
+          const res = await ipcRenderer.invoke('graph-complete-todo-task', { listId, taskId });
+          if (res && res.ok) {
+            // Remove from view
+            setTimeout(() => el.remove(), 300);
+          } else {
+            el.classList.remove('completing');
+            alert('Could not mark task complete: ' + (res?.error || 'unknown error'));
+          }
+        } catch (err) {
+          el.classList.remove('completing');
+          alert('Could not mark task complete: ' + err.message);
+        }
+      });
+    }
+
+    // Drag to day plan: store task data in dataTransfer
+    el.draggable = true;
+    el.addEventListener('dragstart', (e) => {
+      el.classList.add('dragging');
+      const payload = {
+        type:     'ms-todo',
+        title:    el.dataset.title,
+        listId:   el.dataset.listId,
+        taskId:   el.dataset.taskId
+      };
+      try {
+        e.dataTransfer.setData('application/x-daytimer-todo', JSON.stringify(payload));
+        e.dataTransfer.setData('text/plain', payload.title);
+      } catch (err) {}
+      e.dataTransfer.effectAllowed = 'copy';
+    });
+    el.addEventListener('dragend', () => el.classList.remove('dragging'));
+  });
+}
+
+function msTodoTaskHtml(task, listId) {
+  const importanceClass = task.importance === 'high' ? 'high' : '';
+  const importanceMark  = task.importance === 'high' ? '<span class="ms-todo-task-importance high">! High</span>' : '';
+  let dueMark = '';
+  if (task.due_date) {
+    const due = new Date(task.due_date);
+    const overdue = due < new Date();
+    dueMark = `<span class="ms-todo-task-due ${overdue ? 'overdue' : ''}">Due ${due.toLocaleDateString()}</span>`;
+  }
+  return `
+    <div class="ms-todo-task" data-list-id="${escapeHtml(listId)}" data-task-id="${escapeHtml(task.id)}" data-title="${escapeHtml(task.title)}">
+      <div class="ms-todo-checkbox" title="Mark complete in Microsoft To Do"></div>
+      <div style="flex:1;min-width:0;">
+        <div class="ms-todo-task-title">${escapeHtml(task.title)}</div>
+        ${importanceMark || dueMark ? `<div class="ms-todo-task-meta">${importanceMark}${dueMark}</div>` : ''}
+      </div>
+      <button class="todo-add-to-plan" data-action="ms-to-plan" title="Add to today's plan" style="flex-shrink:0;">→ Plan</button>
+    </div>
+  `;
 }
 
 async function loadLocalTodos() {
@@ -3142,6 +3290,31 @@ async function addTodoToPlan(id) {
   }, 100);
 }
 
+async function addMsTaskToPlan(title) {
+  navigateTo('planner');
+  await new Promise(r => setTimeout(r, 60));
+  let startTime = '09:00';
+  const lastEnd = await getLastPlannedEndTime();
+  if (lastEnd) startTime = lastEnd;
+  await openAddPlanItem(startTime);
+  setTimeout(() => {
+    if ($('planTask')) {
+      $('planTask').value = title;
+      $('planStart').focus();
+      $('planStart').select();
+    }
+  }, 100);
+}
+
+// Click handler for the MS → Plan button (delegated)
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.dataset && e.target.dataset.action === 'ms-to-plan') {
+    e.stopPropagation();
+    const taskEl = e.target.closest('.ms-todo-task');
+    if (taskEl) addMsTaskToPlan(taskEl.dataset.title);
+  }
+});
+
 $('todoAddBtn').addEventListener('click', addNewTodo);
 $('todoNewInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') addNewTodo();
@@ -3169,40 +3342,24 @@ $('todoToggleDone').addEventListener('click', () => {
   renderLocalTodos();
 });
 
-document.querySelectorAll('#todoSourceTabs .range-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('#todoSourceTabs .range-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    todoState.source = tab.dataset.source;
-    loadTodos();
-  });
+// MS To Do — connect button (within the To-Do page) → triggers Graph auth flow
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'msTodoConnectBtn') {
+    ipcRenderer.invoke('graph-connect').catch(() => {});
+  }
 });
 
-function renderMsStatus() {
-  // Check if MS config has been filled in
-  let msConfigured = false;
-  try {
-    const cfg = require('../ms-config.js');
-    msConfigured = cfg.clientId && !cfg.clientId.includes('YOUR_');
-  } catch (e) {
-    // Module didn't load
+// MS To Do — refresh button
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'todoMsRefreshBtn') {
+    loadMsTodos();
   }
-  if (!msConfigured) {
-    // Default content already shows the setup instructions
-    return;
-  }
-  // If configured, show login button (auth flow not implemented in this build)
-  $('msStatusContent').innerHTML = `
-    <div style="padding:20px;text-align:center;">
-      <div style="font-size:13px;color:var(--text);margin-bottom:14px;">
-        Microsoft To Do is configured. Authentication flow will be wired up in the next phase.
-      </div>
-      <div style="font-size:11px;color:var(--text-dim);">
-        Once authentication is complete, your Microsoft To Do tasks will sync here.
-      </div>
-    </div>
-  `;
-}
+});
+
+// When Graph connection state changes, reload the MS To-Do column
+ipcRenderer.on('graph-connection-changed', () => {
+  if (state.currentPage === 'todos') loadMsTodos();
+});
 
 // ═══════════════════════════════════════════════════════════
 //  ONBOARDING TOUR
@@ -3391,7 +3548,7 @@ function buildTourSteps() {
     {
       target: () => document.querySelector('#page-todos'),
       title: 'To-Do list',
-      body: `Park ideas and tasks here when they pop into your head. When you're ready, drop them into the Day Planner. You can also flip to <strong>Microsoft To Do</strong> at the top to see your inbox-style tasks (we're rolling that bit out next).`,
+      body: `Park ideas and tasks here when they pop into your head — drop them into the Day Planner when you're ready. Connect Microsoft and your <strong>MS To Do</strong> tasks appear alongside in the right-hand column. Tick them off here and they sync back.`,
       placement: 'auto',
       onShow: () => navigateTo('todos')
     },

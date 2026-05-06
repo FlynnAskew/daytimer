@@ -72,7 +72,7 @@ const SCOPES = [
   'email',
   'offline_access',
   'Calendars.Read',
-  'Tasks.Read'
+  'Tasks.ReadWrite'
 ].join(' ');
 
 // ── PKCE helpers ──────────────────────────────────────────────
@@ -255,6 +255,59 @@ async function listCalendarEvents(startISO, endISO) {
   })).filter(e => e.starts_at && e.ends_at);
 }
 
+// ── Microsoft To Do ──────────────────────────────────────────
+async function listTaskLists() {
+  const res = await graphFetch('/me/todo/lists?$top=50');
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Task lists fetch failed: ${res.status} ${txt}`);
+  }
+  const data = await res.json();
+  return (data.value || []).map(l => ({
+    id:         l.id,
+    name:       l.displayName,
+    is_shared:  !!l.isShared,
+    well_known: l.wellknownListName || null   // e.g. 'defaultList', 'flaggedEmails'
+  }));
+}
+
+async function listTasksInList(listId, includeCompleted = false) {
+  // Filter out completed tasks by default to keep payload small
+  const filter = includeCompleted ? '' : `&$filter=status ne 'completed'`;
+  const url = `/me/todo/lists/${encodeURIComponent(listId)}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime,bodyLastModifiedDateTime${filter}`;
+  const res = await graphFetch(url);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Tasks fetch failed: ${res.status} ${txt}`);
+  }
+  const data = await res.json();
+  return (data.value || []).map(t => ({
+    id:           t.id,
+    list_id:      listId,
+    title:        t.title || '(untitled)',
+    status:       t.status,                   // 'notStarted' | 'inProgress' | 'completed' | 'waitingOnOthers' | 'deferred'
+    importance:   t.importance,               // 'low' | 'normal' | 'high'
+    due_date:     t.dueDateTime?.dateTime || null,
+    created_at:   t.createdDateTime || null
+  }));
+}
+
+async function completeTask(listId, taskId) {
+  const res = await graphFetch(
+    `/me/todo/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ status: 'completed' })
+    }
+  );
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Task complete failed: ${res.status} ${txt}`);
+  }
+  return await res.json();
+}
+
 // ── Connection state notifications ───────────────────────────
 function notifyConnectionState() {
   if (!getMainWindow) return;
@@ -291,6 +344,33 @@ function registerIpc() {
     try {
       const events = await listCalendarEvents(startISO, endISO);
       return { ok: true, events };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('graph-list-todo-lists', async () => {
+    try {
+      const lists = await listTaskLists();
+      return { ok: true, lists };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('graph-list-todo-tasks', async (_evt, { listId, includeCompleted }) => {
+    try {
+      const tasks = await listTasksInList(listId, !!includeCompleted);
+      return { ok: true, tasks };
+    } catch (e) {
+      return { ok: false, error: e.message };
+    }
+  });
+
+  ipcMain.handle('graph-complete-todo-task', async (_evt, { listId, taskId }) => {
+    try {
+      const updated = await completeTask(listId, taskId);
+      return { ok: true, task: updated };
     } catch (e) {
       return { ok: false, error: e.message };
     }

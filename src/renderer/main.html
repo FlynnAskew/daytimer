@@ -189,50 +189,66 @@
           <div class="page-subtitle">Park ideas, then drop them into your Day Plan when ready</div>
         </div>
         <div class="date-nav">
-          <div class="range-tabs" id="todoSourceTabs">
-            <button class="range-tab active" data-source="local">In-app</button>
-            <button class="range-tab" data-source="ms">Microsoft To Do</button>
-          </div>
+          <button class="mini-btn" id="todoMsRefreshBtn" style="font-size:11px;display:none;">↻ Refresh MS</button>
         </div>
       </div>
 
       <div class="analysis-body">
-        <div id="todoLocalView">
-          <div class="settings-section" style="margin-bottom:14px;">
-            <div style="display:flex;gap:8px;align-items:flex-start;">
-              <input type="text" class="field-input" id="todoNewInput" placeholder="Add a new to-do…" style="flex:1;">
-              <select class="field-input" id="todoNewCategory" style="width:160px;">
-                <option value="">— No category —</option>
-              </select>
-              <button class="modal-btn primary" id="todoAddBtn">Add</button>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <div class="section-title" style="display:flex;justify-content:space-between;align-items:center;">
-              <span id="todoListTitle">Open</span>
+        <div class="todo-split">
+          <!-- LEFT: In-app To-Do -->
+          <div class="todo-col">
+            <div class="todo-col-header">
+              <div class="todo-col-label">
+                <span class="todo-col-badge in-app-badge">In-app</span>
+                <span id="todoListTitle">Open</span>
+              </div>
               <button class="mini-btn" id="todoToggleDone" style="font-size:11px;">Show done</button>
             </div>
-            <div id="todoList">
-              <div class="empty-state" style="padding:30px;"><div>No to-dos yet.</div></div>
-            </div>
-          </div>
-        </div>
 
-        <div id="todoMsView" style="display:none;">
-          <div class="settings-section">
-            <div class="section-title">Microsoft To Do</div>
-            <div id="msStatusContent">
-              <div class="empty-state" style="padding:30px;">
-                <div>Microsoft To Do integration is not yet configured.</div>
-                <div style="font-size:11px;color:var(--text-dim);margin-top:8px;line-height:1.6;">
-                  To enable: register an app in Azure portal, then paste your Client ID into <code style="background:var(--surface2);padding:2px 6px;border-radius:4px;">src/ms-config.js</code>.<br>See the comments in that file for step-by-step instructions.
-                </div>
+            <div class="settings-section" style="margin-bottom:12px;">
+              <div style="display:flex;gap:8px;align-items:flex-start;flex-wrap:wrap;">
+                <input type="text" class="field-input" id="todoNewInput" placeholder="Add a new to-do…" style="flex:1;min-width:160px;">
+                <select class="field-input" id="todoNewCategory" style="width:140px;">
+                  <option value="">— No category —</option>
+                </select>
+                <button class="modal-btn primary" id="todoAddBtn">Add</button>
+              </div>
+            </div>
+
+            <div class="settings-section">
+              <div id="todoList">
+                <div class="empty-state" style="padding:30px;"><div>No to-dos yet.</div></div>
               </div>
             </div>
           </div>
-        </div>
 
+          <!-- RIGHT: Microsoft To Do -->
+          <div class="todo-col">
+            <div class="todo-col-header">
+              <div class="todo-col-label">
+                <span class="todo-col-badge ms-badge">📋 Microsoft</span>
+                <span>To Do</span>
+              </div>
+            </div>
+
+            <div id="msTodoConnect" class="settings-section" style="display:none;">
+              <div class="empty-state" style="padding:30px;">
+                <div style="margin-bottom:10px;">Connect your Microsoft account to see your To Do tasks here.</div>
+                <button class="modal-btn primary" id="msTodoConnectBtn">Connect Microsoft</button>
+              </div>
+            </div>
+
+            <div id="msTodoLists" style="display:none;"></div>
+
+            <div id="msTodoLoading" class="settings-section" style="display:none;">
+              <div class="empty-state" style="padding:30px;"><div>Loading…</div></div>
+            </div>
+
+            <div id="msTodoError" class="settings-section" style="display:none;">
+              <div class="empty-state" style="padding:30px;color:var(--danger);"><div id="msTodoErrorText">⚠ Could not load tasks</div></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
 
