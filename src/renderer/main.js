@@ -105,6 +105,7 @@ ipcRenderer.on('user-info', (event, user) => {
 // ── Theme definitions (for the picker UI) ──────────────────
 const THEMES = {
   dark: [
+    { id: 'howler-dark',  name: 'Howler',  bg: '#0d0d0d', surf: '#1a1a1a', acc: '#FF7D00' },
     { id: 'teal-dark',    name: 'Teal',    bg: '#0f0f13', surf: '#1a1a22', acc: '#6ee7b7' },
     { id: 'mono-dark',    name: 'Mono',    bg: '#0a0a0a', surf: '#141414', acc: '#ffffff' },
     { id: 'sky-dark',     name: 'Sky',     bg: '#0d1117', surf: '#161b22', acc: '#58a6ff' },
@@ -118,6 +119,7 @@ const THEMES = {
     { id: 'sage-dark',    name: 'Sage',    bg: '#0f1410', surf: '#181f17', acc: '#86efac' }
   ],
   light: [
+    { id: 'howler-light', name: 'Howler',  bg: '#fafaf8', surf: '#ffffff', acc: '#FF7D00' },
     { id: 'teal-light',   name: 'Teal',    bg: '#f6f9f7', surf: '#ffffff', acc: '#0d9488' },
     { id: 'mono-light',   name: 'Mono',    bg: '#fafaf7', surf: '#ffffff', acc: '#0a0a0a' },
     { id: 'sky-light',    name: 'Sky',     bg: '#f6f8fc', surf: '#ffffff', acc: '#0369a1' },
@@ -157,7 +159,7 @@ const DEFAULT_CATEGORIES = [
 
 // ── State ──────────────────────────────────────────────────
 const state = {
-  currentTheme: 'teal-dark',
+  currentTheme: 'howler-light',
   currentPage: 'tracker',
   categories: [],
   trackerDate: new Date(),
@@ -272,9 +274,9 @@ document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
 async function loadAndApplyTheme() {
   try {
     const theme = await ipcRenderer.invoke('get-theme');
-    state.currentTheme = theme || 'teal-dark';
+    state.currentTheme = theme || 'howler-light';
   } catch (e) {
-    state.currentTheme = 'teal-dark';
+    state.currentTheme = 'howler-light';
   }
   document.documentElement.setAttribute('data-theme', state.currentTheme);
 }

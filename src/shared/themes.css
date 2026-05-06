@@ -107,3 +107,15 @@
   --border: #c5ddc5; --accent: #4d7c52; --accent-soft: rgba(77,124,82,0.1);
   --text: #132215; --text-dim: #618666; --danger: #dc2626;
 }
+
+/* HOWLER (brand) THEMES — Pantone 1505 C orange + grey + black/white */
+:root[data-theme="howler-light"] {
+  --bg: #fafaf8; --surface: #ffffff; --surface2: #f0eeec;
+  --border: #e2dfdc; --accent: #FF7D00; --accent-soft: rgba(255,125,0,0.10);
+  --text: #1a1a1a; --text-dim: #4A4949; --danger: #dc2626;
+}
+:root[data-theme="howler-dark"] {
+  --bg: #0d0d0d; --surface: #1a1a1a; --surface2: #262524;
+  --border: #2e2c2a; --accent: #FF7D00; --accent-soft: rgba(255,125,0,0.12);
+  --text: #f0eeec; --text-dim: #8c8884; --danger: #f87171;
+}

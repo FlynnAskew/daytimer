@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="teal-dark">
+<html lang="en" data-theme="howler-light">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -491,7 +491,7 @@ body {
     (async () => {
       try {
         const theme = await ipcRenderer.invoke('get-theme');
-        document.documentElement.setAttribute('data-theme', theme || 'teal-dark');
+        document.documentElement.setAttribute('data-theme', theme || 'howler-light');
       } catch (e) {}
     })();
 

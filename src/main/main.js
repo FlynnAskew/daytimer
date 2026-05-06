@@ -495,7 +495,7 @@ ipcMain.on('theme-changed', (event, theme) => {
   if (loginWindow)  loginWindow.webContents.send('theme-changed', theme);
 });
 
-ipcMain.handle('get-theme', () => store.get('theme', 'teal-dark'));
+ipcMain.handle('get-theme', () => store.get('theme', 'howler-light'));
 
 ipcMain.handle('get-current-user', () => currentUser);
 
