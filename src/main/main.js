@@ -129,6 +129,11 @@ function createWidget() {
   const primary = screen.getPrimaryDisplay();
   const { width: sw } = primary.workAreaSize;
 
+  // If launched with --hidden (auto-startup case), don't show widget on top.
+  // The user can bring it back via system tray or restart, but we don't want
+  // to interrupt them when Windows logs in.
+  const startHidden = process.argv.includes('--hidden');
+
   widgetWindow = new BrowserWindow({
     width: 320,
     height: 310,
@@ -141,8 +146,9 @@ function createWidget() {
     resizable: false,
     skipTaskbar: false,
     hasShadow: false,
-    thickFrame: false,         // Windows-only — removes the 1px border
-    roundedCorners: false,     // Disable Windows-style rounded corners (we draw our own)
+    thickFrame: false,
+    roundedCorners: false,
+    show: !startHidden,         // Don't auto-show if launched hidden
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false
@@ -431,7 +437,18 @@ ipcMain.on('widget-minimise', () => {
 });
 
 ipcMain.on('widget-hide', () => {
-  if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
+  // The widget may not exist yet on first-login (tour fires very early).
+  // Retry a few times so the hide actually lands when the window appears.
+  let attempts = 0;
+  const tryHide = () => {
+    if (widgetWindow && !widgetWindow.isDestroyed()) {
+      widgetWindow.hide();
+      return;
+    }
+    attempts++;
+    if (attempts < 30) setTimeout(tryHide, 100);
+  };
+  tryHide();
 });
 
 ipcMain.on('widget-show', () => {
@@ -500,6 +517,38 @@ ipcMain.handle('get-theme', () => store.get('theme', 'howler-light'));
 ipcMain.handle('get-current-user', () => currentUser);
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// ── Auto-launch on Windows startup ──────────────────────────
+// Uses Electron's built-in setLoginItemSettings which adds a registry
+// entry under HKCU (current user only — no admin required).
+ipcMain.handle('get-autolaunch', () => {
+  try {
+    const settings = app.getLoginItemSettings({ args: ['--hidden'] });
+    return {
+      enabled:    settings.openAtLogin,
+      startHidden: !!store.get('autolaunchHidden', false)
+    };
+  } catch (e) {
+    return { enabled: false, startHidden: false };
+  }
+});
+
+ipcMain.handle('set-autolaunch', (_evt, { enabled, startHidden }) => {
+  try {
+    store.set('autolaunchHidden', !!startHidden);
+    if (enabled) {
+      app.setLoginItemSettings({
+        openAtLogin: true,
+        args: startHidden ? ['--hidden'] : []
+      });
+    } else {
+      app.setLoginItemSettings({ openAtLogin: false });
+    }
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+});
 
 ipcMain.handle('is-first-login', () => {
   const v = pendingFirstLogin;

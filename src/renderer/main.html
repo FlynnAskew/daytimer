@@ -99,6 +99,10 @@
           </div>
         </div>
 
+        <div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+          <button class="modal-btn primary" id="addManualEntryBtn" style="font-size:12px;">+ Add entry</button>
+        </div>
+
         <div class="tracker-table" id="trackerTable">
           <div class="table-header">
             <div>Start</div>
@@ -450,6 +454,20 @@
             <div>
               <button class="modal-btn" id="resetWidgetBtn" style="font-size:12px;">Reset position to main screen</button>
               <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">If your widget ended up on a disconnected monitor, click to bring it back.</div>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Start with Windows</div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="autolaunchToggle">
+                <span>Open DayTimer when I sign into Windows</span>
+              </label>
+              <label style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);margin-top:6px;cursor:pointer;" id="autolaunchHiddenLabel">
+                <input type="checkbox" id="autolaunchHiddenToggle">
+                <span>Start hidden in the background (sign in only — no widget on screen)</span>
+              </label>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Helps you avoid forgetting to track time at the start of the day.</div>
             </div>
           </div>
         </div>

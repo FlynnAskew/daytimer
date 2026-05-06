@@ -365,6 +365,22 @@ html, body {
 .view-tab.active,
 .range-tab.active { background: var(--accent-soft); color: var(--accent); }
 
+/* Touched (manually added or edited) entry indicator */
+.touched-row {
+  background: color-mix(in srgb, #58a6ff 8%, transparent);
+}
+.touched-row:hover {
+  background: color-mix(in srgb, #58a6ff 14%, transparent);
+}
+.touched-mark {
+  display: inline-block;
+  color: #58a6ff;
+  font-size: 11px;
+  margin-right: 6px;
+  font-weight: 600;
+  cursor: help;
+}
+
 /* ── To-Do split layout ─────────────────────────────────── */
 .todo-split {
   display: grid;

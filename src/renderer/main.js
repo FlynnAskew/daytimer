@@ -63,6 +63,17 @@ let currentUserId = null;
           refresh_token: fresh.refresh_token
         });
         console.log('Main: session refreshed, expires', new Date(fresh.expires_at * 1000).toISOString());
+        // Reload whatever page they're currently on so any data fetched
+        // with a stale token gets refreshed. Without this, queries that
+        // ran during the refresh window can leave the UI showing empty.
+        try {
+          const page = state.currentPage;
+          if (page === 'tracker' && typeof loadTracker === 'function') loadTracker();
+          else if (page === 'planner' && typeof loadPlanner === 'function') loadPlanner();
+          else if (page === 'todos' && typeof loadTodos === 'function') loadTodos();
+          else if (page === 'insights' && typeof loadInsights === 'function') loadInsights();
+          else if (page === 'stats' && typeof loadStats === 'function') loadStats();
+        } catch (e) { console.error('Reload after refresh failed:', e); }
       } catch (e) {
         console.error('Main: failed to apply refreshed session', e);
       }
@@ -421,6 +432,11 @@ function renderTrackerRows(entries) {
 
   rows.innerHTML = entries.map(e => {
     const isBreak = e.entry_type === 'break';
+    const isTouched = !isBreak && (e.is_manual || e.edited_at);
+    const touchedTitle = e.is_manual ? 'Added manually' : 'Edited';
+    const touchedMark = isTouched
+      ? `<span class="touched-mark" title="${touchedTitle}">✎</span>`
+      : '';
     const catCell = isBreak
       ? `<span style="color:#fbbf24;font-size:11px;font-weight:500;">☕ Break</span>`
       : (e.category
@@ -428,9 +444,10 @@ function renderTrackerRows(entries) {
           : '<span style="color:var(--text-dim);font-size:11px;">—</span>');
     const taskCell = isBreak
       ? `<span style="color:var(--text-dim);font-style:italic;">${escapeHtml(e.task_name)}</span>`
-      : escapeHtml(e.task_name);
+      : `${touchedMark}${escapeHtml(e.task_name)}`;
+    const rowClass = `table-row${isTouched ? ' touched-row' : ''}`;
     return `
-    <div class="table-row" data-id="${e.id}" ${isBreak ? 'style="opacity:0.7;"' : ''}>
+    <div class="${rowClass}" data-id="${e.id}" ${isBreak ? 'style="opacity:0.7;"' : ''}>
       <div class="time-col">${formatTime(e.started_at)}</div>
       <div class="time-col">${formatTime(e.ended_at)}</div>
       <div class="task-col" title="${escapeHtml(e.task_name)}">${taskCell}</div>
@@ -542,8 +559,98 @@ function openEditEntry(id, entries) {
         category: cat,
         started_at: startIso,
         ended_at: endIso,
-        duration_secs: duration
+        duration_secs: duration,
+        edited_at: new Date().toISOString()
       }).eq('id', id);
+    }
+    closeModal();
+    loadTracker();
+  });
+}
+
+// ── Add manual entry ──────────────────────────────────────────
+function openAddManualEntry() {
+  const dateStr = dateToString(state.trackerDate);
+  const catOptions = '<option value="">— None —</option>' +
+    state.categories.map(c =>
+      `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`
+    ).join('');
+
+  // Default times: 09:00 to 09:30
+  let defaultStart = '09:00';
+  let defaultEnd = '09:30';
+  // If today and current time is reasonable, use last entry's end -> now
+  const now = new Date();
+  if (isSameDate(state.trackerDate, now)) {
+    defaultEnd = pad(now.getHours()) + ':' + pad(now.getMinutes());
+    const earlier = new Date(now.getTime() - 30 * 60 * 1000);
+    defaultStart = pad(earlier.getHours()) + ':' + pad(earlier.getMinutes());
+  }
+
+  openModal(`
+    <div class="modal-title">Add manual entry</div>
+    <div style="font-size:11px;color:var(--text-dim);margin-bottom:14px;">For when you forgot to track \u2014 marked with a small ✎ on the entry so it's clear it was added by hand.</div>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Task</div>
+        <input type="text" class="field-input" id="manualTask" placeholder="What were you doing?" style="width:100%;">
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Category</div>
+        <select class="field-input" id="manualCategory" style="width:100%;">${catOptions}</select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div>
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Start time</div>
+          <input type="time" class="field-input" id="manualStart" value="${defaultStart}" style="width:100%;">
+        </div>
+        <div>
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">End time</div>
+          <input type="time" class="field-input" id="manualEnd" value="${defaultEnd}" style="width:100%;">
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn primary" id="saveManualBtn">Add entry</button>
+    </div>
+  `);
+
+  // Focus the task field
+  setTimeout(() => $('manualTask').focus(), 60);
+
+  $('saveManualBtn').addEventListener('click', async () => {
+    const task = $('manualTask').value.trim();
+    const cat  = $('manualCategory').value || null;
+    const startT = $('manualStart').value;
+    const endT   = $('manualEnd').value;
+    if (!task) { $('manualTask').focus(); return; }
+    if (!startT || !endT) return;
+
+    const startIso = new Date(dateStr + 'T' + startT + ':00').toISOString();
+    const endIso   = new Date(dateStr + 'T' + endT + ':00').toISOString();
+    if (new Date(endIso) <= new Date(startIso)) {
+      alert('End time must be after start time.');
+      return;
+    }
+    const duration = Math.round((new Date(endIso) - new Date(startIso)) / 1000);
+
+    if (dbReady) {
+      const { error } = await dbClient.from('time_entries').insert(withUid({
+        task_name:     task,
+        category:      cat,
+        started_at:    startIso,
+        ended_at:      endIso,
+        duration_secs: duration,
+        date:          dateStr,
+        entry_type:    'task',
+        is_manual:     true
+      }));
+      if (error) {
+        console.error('Manual entry insert failed:', error);
+        alert('Could not save: ' + error.message);
+        return;
+      }
     }
     closeModal();
     loadTracker();
@@ -563,6 +670,10 @@ $('trackerToday').addEventListener('click', () => {
   state.trackerDate = new Date();
   loadTracker();
 });
+
+if ($('addManualEntryBtn')) {
+  $('addManualEntryBtn').addEventListener('click', openAddManualEntry);
+}
 
 // ═══════════════════════════════════════════════════════════
 //  PLANNER PAGE
@@ -2035,6 +2146,45 @@ function loadSettings() {
 
   // ── Microsoft Calendar integration ─────────────────────────
   setupMsIntegration();
+
+  // ── Auto-launch on Windows startup ─────────────────────────
+  setupAutolaunch();
+}
+
+async function setupAutolaunch() {
+  const t  = $('autolaunchToggle');
+  const ht = $('autolaunchHiddenToggle');
+  const hl = $('autolaunchHiddenLabel');
+  if (!t || !ht || !hl) return;
+
+  // Load current state from main process
+  try {
+    const cur = await ipcRenderer.invoke('get-autolaunch');
+    t.checked  = !!cur.enabled;
+    ht.checked = !!cur.startHidden;
+    hl.style.opacity = cur.enabled ? '1' : '0.5';
+  } catch (e) {}
+
+  const apply = async () => {
+    hl.style.opacity = t.checked ? '1' : '0.5';
+    try {
+      await ipcRenderer.invoke('set-autolaunch', {
+        enabled: t.checked,
+        startHidden: ht.checked
+      });
+    } catch (e) {
+      console.error('Set autolaunch failed', e);
+    }
+  };
+
+  if (!t.dataset.wired) {
+    t.addEventListener('change', apply);
+    t.dataset.wired = 'true';
+  }
+  if (!ht.dataset.wired) {
+    ht.addEventListener('change', apply);
+    ht.dataset.wired = 'true';
+  }
 }
 
 async function setupMsIntegration() {
@@ -3027,14 +3177,14 @@ async function loadMsTodos() {
       throw new Error(listsRes?.error || 'Failed to load lists');
     }
 
-    // Fetch tasks for each list in parallel
+    // Fetch tasks for each list in parallel — capture errors per list
     const tasksByList = await Promise.all(
       listsRes.lists.map(async (list) => {
         const tasksRes = await ipcRenderer.invoke('graph-list-todo-tasks', { listId: list.id, includeCompleted: false });
-        return {
-          list,
-          tasks: tasksRes && tasksRes.ok ? tasksRes.tasks : []
-        };
+        if (tasksRes && tasksRes.ok) {
+          return { list, tasks: tasksRes.tasks, error: null };
+        }
+        return { list, tasks: [], error: tasksRes?.error || 'Unknown error' };
       })
     );
 
@@ -3052,26 +3202,43 @@ function renderMsTodoLists(tasksByList) {
   const container = $('msTodoLists');
   if (!container) return;
 
-  // Show non-empty lists first, then empty ones
+  if (tasksByList.length === 0) {
+    container.innerHTML = `<div class="empty-state" style="padding:30px;"><div>No task lists found in your Microsoft account.</div></div>`;
+    return;
+  }
+
+  // If any list had a fetch error, show that prominently
+  const errorLists = tasksByList.filter(l => l.error);
+  if (errorLists.length > 0) {
+    const errs = errorLists.map(l => `<div style="font-size:11px;color:var(--danger);">⚠ ${escapeHtml(l.list.name)}: ${escapeHtml(l.error)}</div>`).join('');
+    container.innerHTML = `<div class="settings-section" style="margin-bottom:12px;">${errs}</div>` +
+      `<div style="font-size:11px;color:var(--text-dim);padding:8px 4px;">If you see "Insufficient privileges" your IT admin may need to grant the <code>Tasks.ReadWrite</code> permission.</div>`;
+    return;
+  }
+
+  // Sort: lists with tasks first, then empty lists
   const sortedLists = [...tasksByList].sort((a, b) => {
     if (a.tasks.length === 0 && b.tasks.length > 0) return 1;
     if (b.tasks.length === 0 && a.tasks.length > 0) return -1;
     return 0;
   });
 
-  if (sortedLists.length === 0) {
-    container.innerHTML = `<div class="empty-state" style="padding:30px;"><div>No task lists found.</div></div>`;
+  const totalOpen = sortedLists.reduce((sum, l) => sum + l.tasks.length, 0);
+
+  if (totalOpen === 0) {
+    // Show the lists we DID find so users have visual confirmation we connected
+    const listNames = sortedLists.map(l => `<span class="ms-todo-list-count" style="margin-right:6px;">${escapeHtml(l.list.name)}</span>`).join('');
+    container.innerHTML = `
+      <div class="empty-state" style="padding:30px;">
+        <div style="margin-bottom:14px;">🎉 All caught up — no open tasks.</div>
+        <div style="font-size:11px;color:var(--text-dim);">Connected to: ${listNames}</div>
+      </div>`;
     return;
   }
 
-  // Skip totally empty lists by default — would clutter the view
-  const lists = sortedLists.filter(l => l.tasks.length > 0);
-  if (lists.length === 0) {
-    container.innerHTML = `<div class="empty-state" style="padding:30px;"><div>🎉 All caught up — no open tasks.</div></div>`;
-    return;
-  }
-
-  container.innerHTML = lists.map(({ list, tasks }) => `
+  // Render lists that have tasks
+  const visibleLists = sortedLists.filter(l => l.tasks.length > 0);
+  container.innerHTML = visibleLists.map(({ list, tasks }) => `
     <div class="ms-todo-list">
       <div class="ms-todo-list-name">
         <span>${escapeHtml(list.name)}</span>
@@ -3093,7 +3260,6 @@ function renderMsTodoLists(tasksByList) {
         try {
           const res = await ipcRenderer.invoke('graph-complete-todo-task', { listId, taskId });
           if (res && res.ok) {
-            // Remove from view
             setTimeout(() => el.remove(), 300);
           } else {
             el.classList.remove('completing');
@@ -3448,7 +3614,13 @@ function buildTourSteps() {
   const ensureWidgetHidden = () => {
     if (!widgetTourEnded) {
       widgetTourEnded = true;
-      try { ipcRenderer.send('widget-hide'); } catch (e) {}
+      // Send several times in case widget IPC isn't yet bound on first launch.
+      // Each attempt is cheap; main process just calls .hide() repeatedly.
+      const attempt = () => { try { ipcRenderer.send('widget-hide'); } catch (e) {} };
+      attempt();
+      setTimeout(attempt, 200);
+      setTimeout(attempt, 600);
+      setTimeout(attempt, 1500);
     }
   };
 
