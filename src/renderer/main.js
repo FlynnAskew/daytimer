@@ -3177,16 +3177,19 @@ async function loadMsTodos() {
       throw new Error(listsRes?.error || 'Failed to load lists');
     }
 
-    // Fetch tasks for each list in parallel — capture errors per list
-    const tasksByList = await Promise.all(
-      listsRes.lists.map(async (list) => {
-        const tasksRes = await ipcRenderer.invoke('graph-list-todo-tasks', { listId: list.id, includeCompleted: false });
-        if (tasksRes && tasksRes.ok) {
-          return { list, tasks: tasksRes.tasks, error: null };
-        }
-        return { list, tasks: [], error: tasksRes?.error || 'Unknown error' };
-      })
-    );
+    // Fetch tasks for each list sequentially — fetching all in parallel
+    // hits Microsoft Graph's per-app throttle and triggers 429s on a
+    // typical 5-7 list account. Sequencing with a small gap is fast
+    // enough (sub-second total) and never throttles.
+    const tasksByList = [];
+    for (const list of listsRes.lists) {
+      const tasksRes = await ipcRenderer.invoke('graph-list-todo-tasks', { listId: list.id, includeCompleted: false });
+      if (tasksRes && tasksRes.ok) {
+        tasksByList.push({ list, tasks: tasksRes.tasks, error: null });
+      } else {
+        tasksByList.push({ list, tasks: [], error: tasksRes?.error || 'Unknown error' });
+      }
+    }
 
     loadingEl.style.display = 'none';
     listsEl.style.display = 'block';

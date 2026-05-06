@@ -284,48 +284,19 @@ function encodeGraphId(id) {
 }
 
 async function listTasksInList(listId, includeCompleted = false) {
-  const encodedId = encodeGraphId(listId);
-  const win = getMainWindow && getMainWindow();
-  const sendLog = (level, msg) => {
-    console[level === 'error' ? 'error' : 'log']('[graph]', msg);
-    if (win && !win.isDestroyed()) {
-      win.webContents.send('updater-log', { level, line: '[graph] ' + msg });
-    }
-  };
-
-  // ── Diagnostic: try multiple URL variants to isolate the bug ────
-  // We try them in order until one succeeds.
-  const variants = [
-    { label: 'no-query',      path: `/me/todo/lists/${encodedId}/tasks` },
-    { label: 'no-query-raw',  path: `/me/todo/lists/${listId}/tasks` },
-    { label: 'top-only',      path: `/me/todo/lists/${encodedId}/tasks?$top=100` },
-    { label: 'with-select',   path: `/me/todo/lists/${encodedId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime` }
-  ];
-
-  let workingResult = null;
-  for (const v of variants) {
-    const fullUrl = 'https://graph.microsoft.com/v1.0' + v.path;
-    sendLog('info', `Try [${v.label}] ${fullUrl}`);
-    try {
-      const res = await graphFetch(v.path);
-      if (res.ok) {
-        sendLog('info', `✓ [${v.label}] succeeded`);
-        workingResult = res;
-        break;
-      } else {
-        const txt = await res.text().catch(() => '');
-        sendLog('error', `✗ [${v.label}] status=${res.status} body=${txt}`);
-      }
-    } catch (e) {
-      sendLog('error', `✗ [${v.label}] threw ${e.message}`);
-    }
+  // NOTE: We deliberately don't use $select on this endpoint. Microsoft
+  // Graph's To Do task endpoint returns "RequestBroker--ParseUri" 400s
+  // when $select is provided — likely something fussy about how it
+  // handles complex-typed properties like dueDateTime in the projection.
+  // The full task payload is small (~1 KB per task) so over-fetching
+  // here costs us nothing meaningful.
+  const url = `/me/todo/lists/${encodeGraphId(listId)}/tasks?$top=100`;
+  const res = await graphFetch(url);
+  if (!res.ok) {
+    const txt = await res.text().catch(() => '');
+    throw new Error(`Tasks fetch failed: ${res.status} ${txt}`);
   }
-
-  if (!workingResult) {
-    throw new Error(`Tasks fetch failed: all URL variants failed`);
-  }
-
-  const data = await workingResult.json();
+  const data = await res.json();
   let tasks = (data.value || []).map(t => ({
     id:           t.id,
     list_id:      listId,
