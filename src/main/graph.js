@@ -6,9 +6,53 @@
 //  forcing those permissions on everyone who logs in.
 // ═══════════════════════════════════════════════════════════
 
-const { shell, ipcMain, BrowserWindow } = require('electron');
+const { shell, ipcMain, BrowserWindow, net } = require('electron');
 const crypto = require('crypto');
 const path = require('path');
+
+// ── HTTP via Electron's net module ────────────────────────────
+// We deliberately do NOT use Node's fetch here. On corporate networks
+// with SSL inspection (very common with Sophos/Zscaler/etc), the
+// firewall presents its own certificate signed by a corporate root
+// that's installed in the OS trust store. Node fetch only trusts the
+// CAs bundled with Node, so it fails with an opaque "fetch failed"
+// error. Electron's `net` module uses Chromium's network stack which
+// DOES respect the OS trust store — same as Chrome and Edge.
+function httpRequest(url, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const request = net.request({
+      method: opts.method || 'GET',
+      url
+    });
+
+    Object.entries(opts.headers || {}).forEach(([k, v]) => request.setHeader(k, v));
+
+    request.on('response', (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const buf = Buffer.concat(chunks);
+        const text = buf.toString('utf8');
+        let json = null;
+        try { json = JSON.parse(text); } catch (e) {}
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          text: () => Promise.resolve(text),
+          json: () => Promise.resolve(json)
+        });
+      });
+      res.on('error', (e) => reject(e));
+    });
+    request.on('error', (e) => reject(e));
+
+    if (opts.body) {
+      const body = typeof opts.body === 'string' ? opts.body : opts.body.toString();
+      request.write(body);
+    }
+    request.end();
+  });
+}
 
 let store = null;          // electron-store instance (passed in from main.js)
 let getMainWindow = null;  // function returning the main window (for IPC)
@@ -86,7 +130,7 @@ async function exchangeCode(code, redirectUri) {
     scope:         SCOPES
   });
 
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+  const res = await httpRequest(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
@@ -109,7 +153,7 @@ async function refreshAccessToken() {
     refresh_token: tokens.refresh_token,
     scope:         SCOPES
   });
-  const res = await fetch(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
+  const res = await httpRequest(`https://login.microsoftonline.com/${tenantId}/oauth2/v2.0/token`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body
@@ -157,7 +201,7 @@ async function graphFetch(path, opts = {}) {
   const token = await getValidAccessToken();
   if (!token) throw new Error('Not connected to Microsoft');
 
-  const res = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+  const res = await httpRequest(`https://graph.microsoft.com/v1.0${path}`, {
     ...opts,
     headers: {
       ...(opts.headers || {}),
@@ -170,7 +214,7 @@ async function graphFetch(path, opts = {}) {
     // Try one refresh and retry
     const fresh = await refreshAccessToken();
     if (!fresh) throw new Error('Microsoft auth expired — please reconnect');
-    const retry = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
+    const retry = await httpRequest(`https://graph.microsoft.com/v1.0${path}`, {
       ...opts,
       headers: {
         ...(opts.headers || {}),
@@ -278,9 +322,15 @@ async function handleAuthCallback(url) {
     console.log('[graph] connected');
   } catch (e) {
     console.error('[graph] callback handling failed', e);
+    // Surface as much detail as possible so users can copy it for support
+    let detail = e.message || 'Unknown error';
+    if (e.code) detail += ' (code: ' + e.code + ')';
+    if (e.cause && e.cause.message && e.cause.message !== e.message) {
+      detail += ' — ' + e.cause.message;
+    }
     const win = getMainWindow && getMainWindow();
     if (win && !win.isDestroyed()) {
-      win.webContents.send('graph-auth-error', e.message);
+      win.webContents.send('graph-auth-error', detail);
     }
   }
 }
