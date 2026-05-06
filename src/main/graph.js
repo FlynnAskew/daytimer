@@ -272,14 +272,12 @@ async function listTaskLists() {
 }
 
 async function listTasksInList(listId, includeCompleted = false) {
-  // NOTE: Microsoft Graph returns list IDs that are already URL-safe.
-  // Calling encodeURIComponent on them double-encodes characters like '='
-  // and produces "RequestBroker--ParseUri" 400 errors. Use the ID as-is.
-  const params = new URLSearchParams({
-    '$top':    '100',
-    '$select': 'id,title,status,importance,dueDateTime,createdDateTime'
-  });
-  const url = `/me/todo/lists/${listId}/tasks?${params.toString()}`;
+  // IMPORTANT: do NOT use URLSearchParams for OData params. URLSearchParams
+  // encodes '$' to '%24', and Microsoft Graph's OData parser does not
+  // accept the encoded form — it expects the literal '$top' / '$select'
+  // characters and returns "RequestBroker--ParseUri" 400 errors for the
+  // encoded version. Build the query string manually instead.
+  const url = `/me/todo/lists/${listId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime`;
   const res = await graphFetch(url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
