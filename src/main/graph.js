@@ -272,16 +272,14 @@ async function listTaskLists() {
 }
 
 async function listTasksInList(listId, includeCompleted = false) {
-  // Build the URL with URLSearchParams to ensure proper encoding.
-  // We filter completed tasks client-side rather than via $filter — the
-  // Graph API's URL parser is fussy about quote-encoded filter values
-  // ("RequestBroker--ParseUri" errors), and the small overhead of
-  // fetching a few extra rows is negligible.
+  // NOTE: Microsoft Graph returns list IDs that are already URL-safe.
+  // Calling encodeURIComponent on them double-encodes characters like '='
+  // and produces "RequestBroker--ParseUri" 400 errors. Use the ID as-is.
   const params = new URLSearchParams({
     '$top':    '100',
     '$select': 'id,title,status,importance,dueDateTime,createdDateTime'
   });
-  const url = `/me/todo/lists/${encodeURIComponent(listId)}/tasks?${params.toString()}`;
+  const url = `/me/todo/lists/${listId}/tasks?${params.toString()}`;
   const res = await graphFetch(url);
   if (!res.ok) {
     const txt = await res.text().catch(() => '');
@@ -292,8 +290,8 @@ async function listTasksInList(listId, includeCompleted = false) {
     id:           t.id,
     list_id:      listId,
     title:        t.title || '(untitled)',
-    status:       t.status,                   // 'notStarted' | 'inProgress' | 'completed' | 'waitingOnOthers' | 'deferred'
-    importance:   t.importance,               // 'low' | 'normal' | 'high'
+    status:       t.status,
+    importance:   t.importance,
     due_date:     t.dueDateTime?.dateTime || null,
     created_at:   t.createdDateTime || null
   }));
@@ -304,8 +302,9 @@ async function listTasksInList(listId, includeCompleted = false) {
 }
 
 async function completeTask(listId, taskId) {
+  // Same as above — IDs are already URL-safe, don't double-encode.
   const res = await graphFetch(
-    `/me/todo/lists/${encodeURIComponent(listId)}/tasks/${encodeURIComponent(taskId)}`,
+    `/me/todo/lists/${listId}/tasks/${taskId}`,
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
