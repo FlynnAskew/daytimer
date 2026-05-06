@@ -285,8 +285,6 @@ function encodeGraphId(id) {
 
 async function listTasksInList(listId, includeCompleted = false) {
   const encodedId = encodeGraphId(listId);
-  const url = `/me/todo/lists/${encodedId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime`;
-  const fullUrl = 'https://graph.microsoft.com/v1.0' + url;
   const win = getMainWindow && getMainWindow();
   const sendLog = (level, msg) => {
     console[level === 'error' ? 'error' : 'log']('[graph]', msg);
@@ -295,14 +293,39 @@ async function listTasksInList(listId, includeCompleted = false) {
     }
   };
 
-  sendLog('info', `listTasksInList listId="${listId}" len=${listId?.length} url=${fullUrl}`);
-  const res = await graphFetch(url);
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '');
-    sendLog('error', `listTasksInList FAILED status=${res.status} body=${txt}`);
-    throw new Error(`Tasks fetch failed: ${res.status} ${txt}`);
+  // ── Diagnostic: try multiple URL variants to isolate the bug ────
+  // We try them in order until one succeeds.
+  const variants = [
+    { label: 'no-query',      path: `/me/todo/lists/${encodedId}/tasks` },
+    { label: 'no-query-raw',  path: `/me/todo/lists/${listId}/tasks` },
+    { label: 'top-only',      path: `/me/todo/lists/${encodedId}/tasks?$top=100` },
+    { label: 'with-select',   path: `/me/todo/lists/${encodedId}/tasks?$top=100&$select=id,title,status,importance,dueDateTime,createdDateTime` }
+  ];
+
+  let workingResult = null;
+  for (const v of variants) {
+    const fullUrl = 'https://graph.microsoft.com/v1.0' + v.path;
+    sendLog('info', `Try [${v.label}] ${fullUrl}`);
+    try {
+      const res = await graphFetch(v.path);
+      if (res.ok) {
+        sendLog('info', `✓ [${v.label}] succeeded`);
+        workingResult = res;
+        break;
+      } else {
+        const txt = await res.text().catch(() => '');
+        sendLog('error', `✗ [${v.label}] status=${res.status} body=${txt}`);
+      }
+    } catch (e) {
+      sendLog('error', `✗ [${v.label}] threw ${e.message}`);
+    }
   }
-  const data = await res.json();
+
+  if (!workingResult) {
+    throw new Error(`Tasks fetch failed: all URL variants failed`);
+  }
+
+  const data = await workingResult.json();
   let tasks = (data.value || []).map(t => ({
     id:           t.id,
     list_id:      listId,
