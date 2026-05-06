@@ -27,6 +27,13 @@ body {
   width: 320px;
   position: relative;
   transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  animation: widget-wake 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: top right;
+}
+@keyframes widget-wake {
+  0%   { transform: scale(0.85); opacity: 0; }
+  60%  { transform: scale(1.03); opacity: 1; }
+  100% { transform: scale(1);    opacity: 1; }
 }
 
 .titlebar {
@@ -209,6 +216,39 @@ body {
 .status-row.error { color: var(--danger); }
 .status-row.success { color: var(--accent); }
 
+/* Troop Mode badge (shown only when 1+ colleagues are tracking) */
+.troop-row {
+  margin-top: 6px;
+  padding: 4px 8px;
+  font-size: 10px;
+  color: var(--text-dim);
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  cursor: default;
+  animation: troop-fade-in 0.4s ease-out;
+}
+@keyframes troop-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.troop-count {
+  font-weight: 700;
+  color: var(--accent);
+}
+.troop-names { color: var(--text); font-size: 10px; }
+.troop-cat {
+  display: inline-block;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  margin-right: 3px;
+  vertical-align: middle;
+}
+
 /* Upcoming task preview */
 .upcoming {
   display: none;
@@ -297,6 +337,7 @@ body {
       <div class="titlebar-left">
         <div class="dot" id="statusDot"></div>
         <span class="app-name">DayTimer</span>
+        <span id="streakBadge" style="display:none;"></span>
       </div>
       <div class="titlebar-right">
         <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
@@ -336,6 +377,7 @@ body {
       <button class="next-btn start-day" id="nextBtn">Start Day</button>
 
       <div class="status-row" id="statusRow"></div>
+      <div class="troop-row" id="troopRow" style="display:none;"></div>
     </div>
 
   </div>
@@ -353,6 +395,8 @@ body {
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="fun.js"></script>
+  <script src="troop.js"></script>
 
   <script>
     const { ipcRenderer } = require('electron');
@@ -422,6 +466,15 @@ body {
         // Now that auth is ready, refresh whatever the widget normally loads on boot
         try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
         try { if (typeof refreshUpcoming === 'function') refreshUpcoming(); } catch (e) {}
+        try { if (typeof updateStreakBadge === 'function') updateStreakBadge(); } catch (e) {}
+        // Troop Mode — initialise presence subscription
+        try {
+          if (window.dtTroop && session.user) {
+            window.currentUserEmail = session.user.email;
+            window.dtTroop.init();
+            window.dtTroop.onRoster(updateTroopBadge);
+          }
+        } catch (e) {}
       } catch (e) {
         console.error('Widget auth setup failed:', e);
       }
@@ -499,6 +552,79 @@ body {
       document.documentElement.setAttribute('data-theme', theme);
     });
 
+    // ── Streak counter ────────────────────────────────────────
+    async function updateStreakBadge() {
+      const badge = document.getElementById('streakBadge');
+      if (!badge || !dbReady) return;
+      try {
+        // Get distinct dates with task entries in the last 60 days
+        const sinceIso = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+        const { data } = await dbClient.from('time_entries')
+          .select('date')
+          .gte('started_at', sinceIso);
+        if (!data) return;
+        // Build a Set of YYYY-MM-DD that had task entries
+        const dates = new Set(data.map(r => r.date));
+        // Walk back from today (or yesterday if today empty) counting consecutive days
+        let streak = 0;
+        const cursor = new Date();
+        cursor.setHours(0,0,0,0);
+        // If today has no entries, allow yesterday as starting point
+        if (!dates.has(toDateStr(cursor))) {
+          cursor.setDate(cursor.getDate() - 1);
+        }
+        while (dates.has(toDateStr(cursor))) {
+          streak++;
+          cursor.setDate(cursor.getDate() - 1);
+          if (streak > 365) break;
+        }
+        if (streak >= 3) {
+          badge.style.display = 'inline-flex';
+          badge.className = 'dt-streak-badge';
+          badge.textContent = `🔥 ${streak}`;
+          badge.title = `${streak} days in a row!`;
+        } else {
+          badge.style.display = 'none';
+        }
+      } catch (e) { /* silent */ }
+    }
+    function toDateStr(d) {
+      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+    }
+
+    // ── Troop Mode display ────────────────────────────────────
+    function updateTroopBadge(roster) {
+      const row = document.getElementById('troopRow');
+      if (!row) return;
+      // Honour the user's hide preference
+      let hidden = false;
+      try { hidden = localStorage.getItem('troopHidden') === '1'; } catch (e) {}
+      if (hidden || !roster || roster.length === 0) {
+        row.style.display = 'none';
+        return;
+      }
+      // First names only (privacy-friendly), with category dot if known
+      const names = roster.slice(0, 4).map(r => {
+        const cat = r.current_category ? `<span class="troop-cat" style="background:${categoryColourSafe(r.current_category)};" title="${escapeHtmlSafe(r.current_category)}"></span>` : '';
+        return `${cat}${escapeHtmlSafe(r.display_name || 'Someone')}`;
+      });
+      const more = roster.length > 4 ? ` +${roster.length - 4}` : '';
+      const tooltip = roster.map(r => r.display_name + (r.current_category ? ' (' + r.current_category + ')' : '')).join(', ');
+      row.innerHTML = `🐒 <span class="troop-count">${roster.length}</span> in the troop · <span class="troop-names">${names.join(', ')}${more}</span>`;
+      row.title = tooltip;
+      row.style.display = 'flex';
+    }
+
+    function categoryColourSafe(name) {
+      try {
+        const cat = (window._cachedCategories || []).find(c => c.name === name);
+        return cat?.colour || cat?.color || 'var(--accent)';
+      } catch (e) { return 'var(--accent)'; }
+    }
+    function escapeHtmlSafe(s) {
+      return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+
     // ── Categories ────────────────────────────────────────────
     async function loadCategories() {
       const defaults = [
@@ -506,13 +632,19 @@ body {
         'Quoting', 'Emails/Admin', 'Creative Tasks', 'Time Wasting'
       ];
       let cats = defaults;
+      let catsWithColour = defaults.map(name => ({ name, colour: null }));
       if (dbReady) {
         try {
           const { data, error } = await dbClient.from('categories')
-            .select('name').order('sort_order', { ascending: true });
-          if (!error && data && data.length > 0) cats = data.map(c => c.name);
+            .select('name, colour').order('sort_order', { ascending: true });
+          if (!error && data && data.length > 0) {
+            cats = data.map(c => c.name);
+            catsWithColour = data;
+          }
         } catch (e) { console.error(e); }
       }
+      // Cache for troop badge colour-dot lookup
+      window._cachedCategories = catsWithColour;
       const currentValue = categorySelect.value;
       categorySelect.innerHTML = '<option value="">— Select category —</option>' +
         cats.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -600,6 +732,23 @@ body {
     function setPausedMode() {
       nextBtn.textContent = 'End Day';
       nextBtn.classList.add('end-day');
+      // Show a fun rotating message in the status row when on a break
+      const breakMessages = [
+        '☕ Coffee break',
+        '💬 Slack scroll',
+        '🤝 Quick chat',
+        '🚶 Stretching the legs',
+        '🍪 Snack time',
+        '🤔 Thinking break',
+        '📞 Phone call',
+        '🌳 Stepping outside',
+        '🚿 Brain shower'
+      ];
+      try {
+        const msg = breakMessages[Math.floor(Math.random() * breakMessages.length)];
+        statusRow.textContent = msg;
+        statusRow.className = 'status-row paused';
+      } catch (e) {}
     }
 
     function setUnpausedMode() {
@@ -876,6 +1025,34 @@ body {
       setActiveMode();
       lastActivityTime = Date.now();
       loadUpcoming();
+
+      // Troop Mode — tell the troop we're starting work
+      try {
+        if (window.dtTroop) {
+          const task = (taskInput.value || '').trim() || null;
+          const cat  = categorySelect.value || null;
+          window.dtTroop.start({ task, category: cat });
+        }
+      } catch (e) {}
+
+      // Good morning / afternoon toast — personalised greeting
+      try {
+        if (window.dtFun) {
+          const h = now.getHours();
+          const greeting = h < 12 ? 'Good morning' : (h < 17 ? 'Good afternoon' : 'Good evening');
+          const firstName = (() => {
+            const email = (currentUser && currentUser.email) || '';
+            const local = email.split('@')[0] || '';
+            const part = local.split(/[\.\-_]/)[0] || local;
+            return part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '';
+          })();
+          const emoji = h < 12 ? '☕' : (h < 17 ? '☀️' : '🌙');
+          const msg = firstName
+            ? `${greeting}, ${firstName}! Have a good one.`
+            : `${greeting}! Have a good one.`;
+          window.dtFun.toast(msg, { emoji, duration: 4500 });
+        }
+      } catch (e) {}
     }
 
     async function endDay(isIdle = false) {
@@ -916,6 +1093,28 @@ body {
       }
 
       // Reset widget
+      // 🎉 End Day confetti — Howler colours, fired from the End Day button
+      try {
+        if (window.dtFun) {
+          const btn = nextBtn || endDayBtn;
+          let originX = window.innerWidth / 2;
+          let originY = window.innerHeight / 2;
+          if (btn) {
+            const r = btn.getBoundingClientRect();
+            originX = r.left + r.width / 2;
+            originY = r.top + r.height / 2;
+          }
+          window.dtFun.confetti({
+            count: 90,
+            originX,
+            originY,
+            colours: ['#FF7D00', '#000000', '#4A4949', '#FFFFFF', '#FF7D00']
+          });
+        }
+      } catch (e) {}
+
+      // Troop Mode — leave the troop
+      try { if (window.dtTroop) window.dtTroop.stop(); } catch (e) {}
       dayStarted = false;
       isPaused = false;
       pauseBlockStartTime = null;
@@ -949,6 +1148,13 @@ body {
         return;
       }
 
+      // 🐒 Howler easter egg: typing "howler" in a task → a monkey waves
+      try {
+        if (/howler/i.test(task) && window.dtFun) {
+          window.dtFun.toast('🐒 Howler in the house', { emoji: '', duration: 2500 });
+        }
+      } catch (e) {}
+
       const endTime = new Date();
       const duration = seconds;
       const entry = {
@@ -970,6 +1176,9 @@ body {
       resetTimer();
       taskInput.focus();
       updateUpcomingDisplay();
+
+      // Troop Mode — clear current task display while between tasks
+      try { if (window.dtTroop) window.dtTroop.update({ task: null, category: null }); } catch (e) {}
 
       if (dbReady) {
         try {
@@ -996,8 +1205,22 @@ body {
       clearTimeout(upcomingUpdateTimer);
       upcomingUpdateTimer = setTimeout(updateUpcomingDisplay, 500);
     }
-    taskInput.addEventListener('input', scheduleUpcomingUpdate);
-    categorySelect.addEventListener('change', scheduleUpcomingUpdate);
+    taskInput.addEventListener('input', () => {
+      scheduleUpcomingUpdate();
+      try {
+        if (window.dtTroop && dayStarted && !isPaused) {
+          window.dtTroop.update({ task: taskInput.value.trim() || null });
+        }
+      } catch (e) {}
+    });
+    categorySelect.addEventListener('change', () => {
+      scheduleUpcomingUpdate();
+      try {
+        if (window.dtTroop && dayStarted && !isPaused) {
+          window.dtTroop.update({ category: categorySelect.value || null });
+        }
+      } catch (e) {}
+    });
 
     // ── Start button on "Coming Up" panel ─────────────────────
     upcomingStartBtn.addEventListener('click', async () => {

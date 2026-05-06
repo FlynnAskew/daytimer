@@ -53,7 +53,16 @@ let currentUserId = null;
     dbReady = true;
     window.dbClient = dbClient;
     window.currentUserId = currentUserId;
+    window.currentUser = currentUser;
     console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
+
+    // Troop Mode — initialise presence subscription
+    try {
+      if (window.dtTroop) {
+        window.dtTroop.init();
+        window.dtTroop.onRoster(updateTroopBar);
+      }
+    } catch (e) { console.warn('Troop init failed', e); }
 
     // Listen for refreshed tokens from the main process
     ipcRenderer.on('session-refreshed', async (_evt, fresh) => {
@@ -2031,6 +2040,24 @@ function renderGoalRow(goal, entries) {
   const freqLabel = goal.frequency === 'daily' ? 'Daily' : 'Weekly';
   const limitLabel = goal.limit_type === 'max' ? 'Max' : 'Min';
 
+  // Detect first-time goal completion → sparkle celebration
+  // Track per-day to avoid celebrating again the same day after a refresh.
+  try {
+    const todayKey = 'goalCelebrated:' + goal.id + ':' + new Date().toISOString().slice(0,10);
+    const isComplete = (goal.limit_type === 'min' && actualMins >= targetMins) ||
+                       (goal.limit_type === 'max' && actualMins >= targetMins);
+    if (isComplete && goal.limit_type === 'min' && !sessionStorage.getItem(todayKey)) {
+      sessionStorage.setItem(todayKey, '1');
+      setTimeout(() => {
+        const row = document.querySelector(`.goal-row[data-id="${goal.id}"]`);
+        if (row && window.dtFun) {
+          window.dtFun.sparkle(row, { count: 7 });
+          window.dtFun.toast(`🎯 Goal hit: ${goal.category}!`, { emoji: '✨', duration: 3500 });
+        }
+      }, 200);
+    }
+  } catch (e) {}
+
   return `
     <div class="goal-row" data-action="edit-goal" data-id="${goal.id}" title="Click to edit" style="cursor:pointer;">
       <div class="goal-label">
@@ -2149,6 +2176,23 @@ function loadSettings() {
 
   // ── Auto-launch on Windows startup ─────────────────────────
   setupAutolaunch();
+
+  // ── Troop Mode visibility toggle ───────────────────────────
+  const troopT = $('troopVisibleToggle');
+  if (troopT && !troopT.dataset.wired) {
+    let hidden = false;
+    try { hidden = localStorage.getItem('troopHidden') === '1'; } catch (e) {}
+    troopT.checked = !hidden;
+    troopT.addEventListener('change', () => {
+      try {
+        if (troopT.checked) localStorage.removeItem('troopHidden');
+        else localStorage.setItem('troopHidden', '1');
+      } catch (e) {}
+      // Force-refresh the bar with current roster
+      if (window.dtTroop) updateTroopBar(window.dtTroop.getRoster());
+    });
+    troopT.dataset.wired = 'true';
+  }
 }
 
 async function setupAutolaunch() {
@@ -3859,10 +3903,117 @@ window.addEventListener('load', async () => {
 });
 
 // ═══════════════════════════════════════════════════════════
+//  TROOP MODE BAR (top of dashboard)
+// ═══════════════════════════════════════════════════════════
+function updateTroopBar(roster) {
+  const bar = document.getElementById('troopBar');
+  if (!bar) return;
+  let hidden = false;
+  try { hidden = localStorage.getItem('troopHidden') === '1'; } catch (e) {}
+  if (hidden || !roster || roster.length === 0) {
+    bar.style.display = 'none';
+    return;
+  }
+
+  const members = roster.map(r => {
+    const cat = r.current_category;
+    const colour = cat ? categoryColour(cat) : 'var(--text-dim)';
+    const catLabel = cat ? `<span class="troop-member-cat">· ${escapeHtml(cat)}</span>` : '';
+    return `<div class="troop-member"><span class="troop-member-dot" style="background:${colour};"></span>${escapeHtml(r.display_name || 'Someone')}${catLabel}</div>`;
+  }).join('');
+
+  bar.innerHTML = `
+    <span class="troop-bar-icon">🐒</span>
+    <span><span class="troop-bar-count">${roster.length}</span> in the troop</span>
+    <div class="troop-bar-list">${members}</div>
+    <button class="troop-bar-hide" id="troopHideBtn" title="Hide troop bar">Hide</button>
+  `;
+  bar.style.display = 'flex';
+
+  // Wire the hide button
+  const hideBtn = document.getElementById('troopHideBtn');
+  if (hideBtn && !hideBtn.dataset.wired) {
+    hideBtn.addEventListener('click', () => {
+      try { localStorage.setItem('troopHidden', '1'); } catch (e) {}
+      bar.style.display = 'none';
+      // Show a toast confirming where to bring it back
+      if (window.dtFun) {
+        window.dtFun.toast('Troop bar hidden — re-enable it in Settings', { emoji: '🐒', duration: 5000 });
+      }
+    });
+    hideBtn.dataset.wired = 'true';
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  END OF WEEK SUMMARY (Friday afternoon)
+// ═══════════════════════════════════════════════════════════
+async function maybeShowWeekSummary() {
+  try {
+    const now = new Date();
+    // Friday = 5, only after 3pm
+    if (now.getDay() !== 5 || now.getHours() < 15) return;
+
+    const todayKey = 'weekSummaryShown:' + now.toISOString().slice(0,10);
+    if (localStorage.getItem(todayKey)) return;
+
+    if (!dbReady) return;
+    await waitForAuth(2000);
+    if (!dbReady) return;
+
+    // Sum up this week's task entries
+    const weekStart = new Date(now);
+    weekStart.setDate(weekStart.getDate() - weekStart.getDay() + (weekStart.getDay() === 0 ? -6 : 1)); // Monday
+    weekStart.setHours(0,0,0,0);
+
+    const { data } = await dbClient.from('time_entries')
+      .select('category, duration_secs, entry_type')
+      .gte('started_at', weekStart.toISOString())
+      .lte('started_at', now.toISOString());
+
+    if (!data || data.length === 0) return;
+
+    const taskRows = data.filter(r => !r.entry_type || r.entry_type === 'task');
+    const totalSecs = taskRows.reduce((s, r) => s + (r.duration_secs || 0), 0);
+    const totalHours = (totalSecs / 3600).toFixed(1);
+
+    // Top category
+    const catTotals = {};
+    taskRows.forEach(r => {
+      if (!r.category) return;
+      catTotals[r.category] = (catTotals[r.category] || 0) + (r.duration_secs || 0);
+    });
+    const topCat = Object.entries(catTotals).sort((a,b) => b[1]-a[1])[0];
+    const topCatName = topCat ? topCat[0] : null;
+
+    const firstName = (() => {
+      const email = (currentUser && currentUser.email) || '';
+      const local = email.split('@')[0] || '';
+      const part = local.split(/[\.\-_]/)[0] || local;
+      return part ? part.charAt(0).toUpperCase() + part.slice(1).toLowerCase() : '';
+    })();
+
+    const greeting = firstName ? `Nice week, ${firstName}!` : 'Nice week!';
+    let body = `${totalHours}h tracked this week`;
+    if (topCatName) body += `, mostly ${topCatName}`;
+    body += '. Have a good weekend 🍻';
+
+    if (window.dtFun) {
+      window.dtFun.toast(`${greeting} ${body}`, { emoji: '🎉', duration: 8000 });
+    }
+    localStorage.setItem(todayKey, '1');
+  } catch (e) {
+    console.error('week summary failed', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
 //  BOOT
 // ═══════════════════════════════════════════════════════════
 (async () => {
   await loadAndApplyTheme();
   await loadCategoriesFromDb();
   loadTracker();
+  // Run after a short delay so the dashboard has rendered first
+  setTimeout(maybeShowWeekSummary, 2000);
 })();

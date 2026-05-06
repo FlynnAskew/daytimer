@@ -65,6 +65,8 @@
   <!-- ═══════════════ MAIN ═══════════════ -->
   <main class="main">
 
+    <!-- Troop Mode bar (shown only when colleagues are tracking) -->
+    <div id="troopBar" class="troop-bar" style="display:none;"></div>
     <!-- ─── TRACKER PAGE ─── -->
     <div class="page active" id="page-tracker">
       <div class="page-header">
@@ -470,6 +472,16 @@
               <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Helps you avoid forgetting to track time at the start of the day.</div>
             </div>
           </div>
+          <div class="field-row">
+            <div class="field-label">Troop Mode</div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="troopVisibleToggle" checked>
+                <span>Show <strong>🐒 troop bar</strong> when colleagues are tracking</span>
+              </label>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Shows first names + current category of @howleruk.com colleagues who are actively tracking.</div>
+            </div>
+          </div>
         </div>
 
         <div class="settings-section">
@@ -571,6 +583,8 @@
 
 <!-- Supabase library -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="fun.js"></script>
+<script src="troop.js"></script>
 <script src="tour.js"></script>
 <script src="main.js"></script>
 

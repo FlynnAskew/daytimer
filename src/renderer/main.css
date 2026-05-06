@@ -365,6 +365,69 @@ html, body {
 .view-tab.active,
 .range-tab.active { background: var(--accent-soft); color: var(--accent); }
 
+/* Troop Mode bar (top of main app) */
+.troop-bar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 0 14px 0;
+  padding: 8px 14px;
+  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  animation: troop-bar-in 0.4s ease-out;
+}
+@keyframes troop-bar-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.troop-bar-icon { font-size: 16px; }
+.troop-bar-count {
+  font-weight: 700;
+  color: var(--accent);
+}
+.troop-bar-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+.troop-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 9px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  font-size: 11px;
+}
+.troop-member-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.troop-member-cat {
+  color: var(--text-dim);
+  font-size: 10px;
+}
+.troop-bar-hide {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.troop-bar-hide:hover { background: var(--surface2); color: var(--text); }
+
 /* Touched (manually added or edited) entry indicator */
 .touched-row {
   background: color-mix(in srgb, #58a6ff 8%, transparent);
