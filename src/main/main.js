@@ -8,17 +8,23 @@ let autoUpdater = null;
 if (app.isPackaged) {
   try {
     autoUpdater = require('electron-updater').autoUpdater;
-    // Explicitly enable differential (delta) downloads — on Windows this
-    // means electron-updater fetches the small block-map patch instead
-    // of the full installer when possible.
     autoUpdater.disableDifferentialDownload = false;
-    // Enable verbose logging so the Settings → About console shows what
-    // the updater is doing — invaluable for diagnosing firewall issues.
+    // Pipe updater logs to renderer DevTools so we can actually see what's
+    // happening. The main process console isn't visible in installed builds.
+    const sendLog = (level, msg) => {
+      const line = '[updater] ' + (typeof msg === 'string' ? msg : JSON.stringify(msg));
+      console[level === 'error' ? 'error' : level === 'warn' ? 'warn' : 'log'](line);
+      try {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('updater-log', { level, line });
+        }
+      } catch (e) {}
+    };
     autoUpdater.logger = {
-      info:  (m) => console.log('[updater]', m),
-      warn:  (m) => console.warn('[updater]', m),
-      error: (m) => console.error('[updater]', m),
-      debug: (m) => console.log('[updater]', m)
+      info:  (m) => sendLog('info',  m),
+      warn:  (m) => sendLog('warn',  m),
+      error: (m) => sendLog('error', m),
+      debug: (m) => sendLog('info',  m)
     };
   } catch (e) {
     console.log('electron-updater not available');

@@ -3506,6 +3506,13 @@ ipcRenderer.on('start-tour', () => {
   startOnboardingTour();
 });
 
+// Listen for updater logs from main process so they appear in DevTools
+ipcRenderer.on('updater-log', (_evt, { level, line }) => {
+  if (level === 'error') console.error(line);
+  else if (level === 'warn') console.warn(line);
+  else console.log(line);
+});
+
 // Safety net — if first-login flag is set and we missed the IPC, run anyway
 window.addEventListener('load', async () => {
   try {
