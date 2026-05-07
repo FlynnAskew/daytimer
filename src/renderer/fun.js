@@ -3,6 +3,8 @@
 //
 //  Self-contained delights that get loaded into both renderers.
 //  Exposes window.dtFun = { confetti, toast, sparkle, sounds, ... }
+//
+//  Claude Code pipeline test: 2026-05-07
 // ═══════════════════════════════════════════════════════════
 
 (function attachFun(global) {
