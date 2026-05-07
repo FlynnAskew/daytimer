@@ -170,6 +170,8 @@ function createWidget() {
     store.set('widgetPosition', { x, y });
   });
 
+  widgetWindow.on('focus', () => maybeRefreshOnFocus());
+
   widgetWindow.on('closed', () => { widgetWindow = null; });
 
   // Pass user info to widget renderer
@@ -206,6 +208,7 @@ function createMainWindow() {
     }
   });
 
+  mainWindow.on('focus', () => maybeRefreshOnFocus());
   mainWindow.on('closed', () => { mainWindow = null; });
 }
 
@@ -224,6 +227,21 @@ function isPositionOnVisibleDisplay(x, y) {
 //  APP LIFECYCLE
 // ══════════════════════════════════════════════════════════════
 app.whenReady().then(() => {
+  // When the laptop wakes from sleep, the refresh timer may have fired
+  // (or missed) while suspended. Force a check on resume.
+  try {
+    const { powerMonitor } = require('electron');
+    powerMonitor.on('resume', () => {
+      console.log('[main] system resumed — checking auth token');
+      maybeRefreshOnFocus();
+    });
+    powerMonitor.on('unlock-screen', () => {
+      maybeRefreshOnFocus();
+    });
+  } catch (e) {
+    console.warn('powerMonitor not available', e);
+  }
+
   // Initialise Microsoft Graph integration. Tenant + client IDs come
   // from the same Azure app registration used for Supabase sign-in.
   // We read them from src/ms-config.js (generated at build time from
@@ -307,7 +325,50 @@ function scheduleRefresh() {
   // Refresh 5 minutes before expiry, but not less than 10 seconds away
   const refreshIn = Math.max(10_000, expiresAtMs - Date.now() - 5 * 60 * 1000);
   console.log('[main] token refresh scheduled in', Math.round(refreshIn / 1000), 's');
-  refreshTimer = setTimeout(refreshSession, refreshIn);
+  refreshTimer = setTimeout(() => { refreshSession(); }, refreshIn);
+}
+
+// HTTP via Electron's net module — uses Chromium's network stack which
+// respects the OS certificate store. Crucial on corporate networks with
+// SSL inspection (Sophos/Zscaler etc) — Node's built-in fetch will fail
+// with an opaque "fetch failed" error in that situation.
+function netPost(url, opts = {}) {
+  return new Promise((resolve, reject) => {
+    const { net } = require('electron');
+    const request = net.request({ method: 'POST', url });
+    Object.entries(opts.headers || {}).forEach(([k, v]) => request.setHeader(k, v));
+    request.on('response', (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        let json = null;
+        try { json = JSON.parse(text); } catch (e) {}
+        resolve({
+          ok: res.statusCode >= 200 && res.statusCode < 300,
+          status: res.statusCode,
+          text:   () => Promise.resolve(text),
+          json:   () => Promise.resolve(json)
+        });
+      });
+      res.on('error', reject);
+    });
+    request.on('error', reject);
+    if (opts.body) request.write(typeof opts.body === 'string' ? opts.body : opts.body.toString());
+    request.end();
+  });
+}
+
+let refreshAttempts = 0;       // consecutive failed attempts
+const MAX_BACKOFF_MS = 5 * 60 * 1000;  // cap at 5 mins between retries
+
+function broadcastAuthState(state) {
+  // state: 'refreshed' | 'failing' | 'dead'
+  [widgetWindow, mainWindow, loginWindow].forEach(win => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send('auth-state', state);
+    }
+  });
 }
 
 async function refreshSession() {
@@ -320,26 +381,34 @@ async function refreshSession() {
       return;
     }
 
-    const res = await fetch(`${cfg.url}/auth/v1/token?grant_type=refresh_token`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'apikey': cfg.anonKey,
-        'Authorization': `Bearer ${cfg.anonKey}`
-      },
-      body: JSON.stringify({ refresh_token: cachedSession.refresh_token })
-    });
+    const res = await netPost(
+      `${cfg.url}/auth/v1/token?grant_type=refresh_token`,
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'apikey': cfg.anonKey,
+          'Authorization': `Bearer ${cfg.anonKey}`
+        },
+        body: JSON.stringify({ refresh_token: cachedSession.refresh_token })
+      }
+    );
 
     if (!res.ok) {
       const txt = await res.text().catch(() => '');
       console.error('[main] token refresh failed', res.status, txt);
-      return;
+      // 4xx auth errors mean the refresh token is dead — only re-login fixes it
+      if (res.status >= 400 && res.status < 500) {
+        broadcastAuthState('dead');
+        return; // don't retry — would just keep failing
+      }
+      // 5xx or network: retry with backoff
+      throw new Error(`refresh status ${res.status}`);
     }
 
     const fresh = await res.json();
-    if (!fresh.access_token || !fresh.refresh_token) {
+    if (!fresh || !fresh.access_token || !fresh.refresh_token) {
       console.error('[main] token refresh returned no tokens', fresh);
-      return;
+      throw new Error('no tokens in refresh response');
     }
 
     // Merge the new tokens into the cached session
@@ -351,6 +420,7 @@ async function refreshSession() {
       expires_in:    fresh.expires_in,
       token_type:    fresh.token_type || cachedSession.token_type
     };
+    refreshAttempts = 0;
     console.log('[main] token refreshed, new expiry:', new Date(cachedSession.expires_at * 1000).toISOString());
 
     // Push fresh tokens to every renderer
@@ -359,14 +429,30 @@ async function refreshSession() {
         win.webContents.send('session-refreshed', cachedSession);
       }
     });
+    broadcastAuthState('refreshed');
 
     // Schedule the next refresh
     scheduleRefresh();
   } catch (e) {
-    console.error('[main] token refresh threw', e);
-    // Try again in a minute in case it was a transient network issue
-    refreshTimer = setTimeout(refreshSession, 60_000);
+    refreshAttempts++;
+    // Exponential backoff: 30s, 60s, 2m, 4m, capped at 5m. Keep retrying
+    // forever — there's no good reason to stop trying. Most failures are
+    // transient network issues (VPN drop, captive portal etc).
+    const backoff = Math.min(MAX_BACKOFF_MS, 30_000 * Math.pow(2, Math.min(refreshAttempts - 1, 5)));
+    console.error(`[main] token refresh threw (attempt ${refreshAttempts}, retrying in ${Math.round(backoff/1000)}s):`, e.message || e);
+    if (refreshAttempts >= 3) broadcastAuthState('failing');
+    refreshTimer = setTimeout(() => { refreshSession(); }, backoff);
   }
+}
+
+// Try a refresh whenever any window regains focus — catches the case
+// where a laptop lid was closed past the token's expiry and the timer
+// missed its slot. Cheap to run; refreshSession bails fast if not needed.
+function maybeRefreshOnFocus() {
+  if (!cachedSession || !cachedSession.expires_at) return;
+  const ms = cachedSession.expires_at * 1000 - Date.now();
+  // If less than 5 minutes of life left, refresh now
+  if (ms < 5 * 60 * 1000) refreshSession();
 }
 
 ipcMain.on('login-success', (event, payload) => {

@@ -88,6 +88,28 @@ let currentUserId = null;
       }
     });
 
+    // Listen for auth-state messages from the main process
+    ipcRenderer.on('auth-state', (_evt, state) => {
+      if (state === 'dead') {
+        // Refresh token is no longer valid — the user must sign in again.
+        // Surface this clearly rather than letting queries silently fail.
+        if (window.dtFun) {
+          window.dtFun.toast(
+            'Your sign-in has expired. Please sign out and back in to continue.',
+            { emoji: '🔒', duration: 30000 }
+          );
+        }
+      } else if (state === 'failing') {
+        // Multiple refresh attempts failed — show a quieter warning
+        if (window.dtFun) {
+          window.dtFun.toast(
+            'Trouble reaching auth server — retrying. If this persists, check your network.',
+            { emoji: '⚠️', duration: 6000 }
+          );
+        }
+      }
+    });
+
     // Re-load any data that was attempted before auth was ready
     try { if (typeof loadCategoriesFromDb === 'function') await loadCategoriesFromDb(); } catch (e) {}
     try { if (typeof loadTracker         === 'function') loadTracker();         } catch (e) {}
