@@ -30,3 +30,6 @@ src/ms-config.js
 
 # Built app
 *.exe
+
+# Claude Code
+.claude/
