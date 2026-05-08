@@ -1,42 +1,38 @@
-# DayTimer Handover — 2026-05-07
+# DayTimer Handover — 2026-05-08
 
 ## What's Deployed & Working
 
-**v5.3.4** is live on GitHub Releases with all assets:
-- DayTimer-Setup-5.3.4.exe
-- DayTimer-Setup-5.3.4.exe.blockmap
-- latest.yml
+**v5.3.4** is the last released version on GitHub. **v5.4.0** is built and ready to commit/tag.
 
-Users will auto-update next time they open the app.
-
-### Changes in this session:
-- **v5.3.3**: Added CLAUDE.md (codebase guidelines for Claude Code), test comment in fun.js
-- **v5.3.4**: Updated app icon (icon.ico + icon.png)
-
-### Claude Code setup complete:
-- CLAUDE.md created with full codebase documentation
-- Release workflow verified end-to-end (commit → push → tag → GitHub Actions → published release)
-- Git credentials working (no PAT needed)
+### Changes in v5.4.0 (this session):
+- **Bug fix**: Tour z-order race — widget window is now hidden from the main process before `start-tour` is sent, so its `alwaysOnTop` can't overlay the onboarding tour tooltips
+- **Bug fix**: Categories desync — added a 3-second delayed second `loadCategories()` call after auth ready, catches first-install race where categories table was empty on first fetch
+- **Bug fix**: Troop dot colours — `updateTroopBadge()` now detects missing colour data and calls `loadCategories()` before rendering (one attempt, guarded against infinite loop with `_troopColorLoadAttempted` flag)
+- **Bug fix**: Streak weekends — streak counter now skips weekends and UK bank holidays (England & Wales, 2025–2027 pre-loaded). Badge tooltip updated to "working days in a row"
+- **Feature**: Inbound call button — ☎ button appears in widget titlebar when day is started. Click logs the current task as a normal entry, then sets up "Inbound call" as the next entry with `entry_type='inbound_call'`. Button highlights while on call; Next Task logs it and clears the state.
+- **Feature**: User initial in sidebar — main app sidebar logo now shows the first letter of the signed-in user's name (derived from email local part) instead of hardcoded "D". Updates on auth ready and on `user-info` IPC.
+- **Icon update**: Updated icon.ico + icon.png already in build folder — will be picked up by next build automatically
 
 ## Nothing In Progress
 
-No half-finished work. Clean state.
+No half-finished work. Clean state. Just needs commit + tag to release.
 
-## Next Session — Pick One
+## Release Steps
 
-### Known Bugs (priority order from brief):
-1. **Tour z-order race**: Widget tour box overlays main app on initial run only — replay works fine
-2. **Categories desync**: Widget shows stale defaults on first install until user changes something
-3. **Troop dot colours**: `_cachedCategories` race condition causes missing category colours
-4. **Streak weekends**: Counter resets on Sat/Sun — should skip weekends + UK bank holidays
+```
+cd C:\ai_projects\daytimer
+git add -A
+git commit -m "v5.4.0: fix tour z-order, categories desync, troop colours, streak weekends; add inbound call btn, user initial"
+git push origin main
+git tag v5.4.0
+git push origin v5.4.0
+```
 
-### Feature Requests:
-1. **Inbound call button**: 📞 icon on widget, pauses current task, logs as `inbound_call` entry_type
-2. **User initial in widget**: Replace "D" logo with first letter of user's name (e.g. "F" for Flynn)
+Then poll GitHub until release assets appear (~2 min build).
 
 ## Quick Reference
 
 - **Repo**: https://github.com/FlynnAskew/daytimer
 - **Supabase**: wjepdxhpcvpynpdgtivd
-- **Current version**: 5.3.4
+- **Current version**: 5.4.0 (not yet released)
 - **Build time**: ~2 minutes on GitHub Actions

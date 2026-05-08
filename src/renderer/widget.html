@@ -95,6 +95,7 @@ body {
 
 .icon-btn:hover { color: var(--text); background: var(--surface2); }
 .icon-btn.close-btn:hover { color: #f87171; background: rgba(248,113,113,0.12); }
+.icon-btn.call-active { color: var(--accent); background: rgba(110,231,183,0.15); }
 
 .body {
   padding: 12px;
@@ -340,6 +341,7 @@ body {
         <span id="streakBadge" style="display:none;"></span>
       </div>
       <div class="titlebar-right">
+        <button class="icon-btn" id="callBtn" title="Log inbound call" style="display:none;">☎</button>
         <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
         <button class="icon-btn" id="minimiseBtn" title="Minimise">─</button>
         <button class="icon-btn close-btn" id="closeBtn" title="Close DayTimer">✕</button>
@@ -467,6 +469,10 @@ body {
         try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
         try { if (typeof refreshUpcoming === 'function') refreshUpcoming(); } catch (e) {}
         try { if (typeof updateStreakBadge === 'function') updateStreakBadge(); } catch (e) {}
+        // Second pass catches first-install race where the categories table was empty on the first fetch
+        setTimeout(async () => {
+          try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
+        }, 3000);
         // Troop Mode — initialise presence subscription
         try {
           if (window.dtTroop && session.user) {
@@ -510,6 +516,8 @@ body {
     // ── State ─────────────────────────────────────────────────
     let seconds = 0;
     let isPaused = false;
+    let pendingEntryType = 'task'; // set to 'inbound_call' when call btn used
+    let _troopColorLoadAttempted = false;
     let isMinimised = false;
     let dayStarted = false;
     let pauseStartTime = null;  // when pause began (for break logging)
@@ -553,43 +561,61 @@ body {
     });
 
     // ── Streak counter ────────────────────────────────────────
+    // England & Wales bank holidays — extend this list each year
+    const UK_BANK_HOLIDAYS = new Set([
+      '2025-01-01','2025-04-18','2025-04-21','2025-05-05','2025-05-26',
+      '2025-08-25','2025-12-25','2025-12-26',
+      '2026-01-01','2026-04-03','2026-04-06','2026-05-04','2026-05-25',
+      '2026-08-31','2026-12-25','2026-12-28',
+      '2027-01-01','2027-03-26','2027-03-29','2027-05-03','2027-05-31',
+      '2027-08-30','2027-12-27','2027-12-28',
+    ]);
+    function toDateStr(d) {
+      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
+    }
+    function isWorkingDay(d) {
+      const day = d.getDay();
+      return day !== 0 && day !== 6 && !UK_BANK_HOLIDAYS.has(toDateStr(d));
+    }
+
     async function updateStreakBadge() {
       const badge = document.getElementById('streakBadge');
       if (!badge || !dbReady) return;
       try {
-        // Get distinct dates with task entries in the last 60 days
-        const sinceIso = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+        // Look back far enough to cover long streaks (working days only)
+        const sinceIso = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
         const { data } = await dbClient.from('time_entries')
           .select('date')
           .gte('started_at', sinceIso);
         if (!data) return;
-        // Build a Set of YYYY-MM-DD that had task entries
+        // Build a Set of YYYY-MM-DD that had entries
         const dates = new Set(data.map(r => r.date));
-        // Walk back from today (or yesterday if today empty) counting consecutive days
+        // Walk back from today counting consecutive WORKING days.
+        // Weekends and bank holidays are skipped — a gap there doesn't break the streak.
         let streak = 0;
         const cursor = new Date();
         cursor.setHours(0,0,0,0);
-        // If today has no entries, allow yesterday as starting point
-        if (!dates.has(toDateStr(cursor))) {
+        // If today is a working day with no entries yet, start from yesterday
+        if (isWorkingDay(cursor) && !dates.has(toDateStr(cursor))) {
           cursor.setDate(cursor.getDate() - 1);
         }
-        while (dates.has(toDateStr(cursor))) {
-          streak++;
+        while (streak <= 365) {
+          if (isWorkingDay(cursor)) {
+            if (!dates.has(toDateStr(cursor))) break; // missed a working day
+            streak++;
+          }
+          // Always step back one calendar day (skips weekends/holidays automatically)
           cursor.setDate(cursor.getDate() - 1);
-          if (streak > 365) break;
         }
         if (streak >= 3) {
           badge.style.display = 'inline-flex';
           badge.className = 'dt-streak-badge';
           badge.textContent = `🔥 ${streak}`;
-          badge.title = `${streak} days in a row!`;
+          badge.title = `${streak} working days in a row!`;
         } else {
           badge.style.display = 'none';
         }
       } catch (e) { /* silent */ }
-    }
-    function toDateStr(d) {
-      return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate());
     }
 
     // ── Troop Mode display ────────────────────────────────────
@@ -601,6 +627,15 @@ body {
       try { hidden = localStorage.getItem('troopHidden') === '1'; } catch (e) {}
       if (hidden || !roster || roster.length === 0) {
         row.style.display = 'none';
+        return;
+      }
+      // If categories haven't been fetched with colour data yet, load them first then re-render.
+      // One attempt only — avoids an infinite loop when the user genuinely has no colours set.
+      if (!_troopColorLoadAttempted && dbReady &&
+          roster.some(r => r.current_category) &&
+          !(window._cachedCategories || []).some(c => c.colour || c.color)) {
+        _troopColorLoadAttempted = true;
+        loadCategories().then(() => updateTroopBadge(roster)).catch(() => {});
         return;
       }
       // First names only (privacy-friendly), with category dot if known
@@ -739,6 +774,8 @@ body {
       taskInput.disabled = true;
       categorySelect.disabled = true;
       timerDisplay.textContent = '00:00:00';
+      const callBtn = document.getElementById('callBtn');
+      if (callBtn) callBtn.style.display = 'none';
     }
 
     function setActiveMode() {
@@ -752,6 +789,8 @@ body {
       seconds = 0;
       taskInput.focus();
       updateStatusDotColour();
+      const callBtn = document.getElementById('callBtn');
+      if (callBtn) callBtn.style.display = '';
     }
 
     function setPausedMode() {
@@ -1002,6 +1041,55 @@ body {
       ipcRenderer.send('quit-app');
     });
 
+    // ── Inbound call button ───────────────────────────────────
+    document.getElementById('callBtn').addEventListener('click', async () => {
+      if (!dayStarted || isPaused) return;
+      const callBtn = document.getElementById('callBtn');
+
+      // Log the current task (if any) as a normal entry before starting the call
+      const currentTask = taskInput.value.trim();
+      if (currentTask) {
+        const endTime = new Date();
+        const entry = {
+          task_name: currentTask,
+          category: categorySelect.value || null,
+          started_at: startTime.toISOString(),
+          ended_at: endTime.toISOString(),
+          duration_secs: seconds,
+          date: localDateString(startTime),
+          entry_type: 'task'
+        };
+        if (dbReady) {
+          try { await dbClient.from('time_entries').insert([withUid(entry)]); } catch (e) { console.error(e); }
+        }
+      }
+
+      // Set up the inbound call as the next entry to be logged
+      pendingEntryType = 'inbound_call';
+      taskInput.value = 'Inbound call';
+      categorySelect.value = '';
+      resetTimer();
+      widgetBody.classList.add('clearing');
+      setTimeout(() => widgetBody.classList.remove('clearing'), 180);
+      updateStatusDotColour();
+      callBtn.classList.add('call-active');
+
+      statusRow.textContent = '📞 On a call — hit Next Task when done';
+      statusRow.className = 'status-row';
+      setTimeout(() => {
+        if (statusRow.textContent.startsWith('📞')) {
+          statusRow.textContent = '';
+          statusRow.className = 'status-row';
+        }
+      }, 4000);
+
+      try {
+        if (window.dtTroop && dayStarted) {
+          window.dtTroop.update({ task: 'Inbound call', category: null });
+        }
+      } catch (e) {}
+    });
+
     // ── Open main app ─────────────────────────────────────────
     openMainBtn.addEventListener('click', () => {
       ipcRenderer.send('open-main');
@@ -1236,6 +1324,11 @@ body {
 
       const endTime = new Date();
       const duration = seconds;
+      const entryType = pendingEntryType || 'task';
+      pendingEntryType = 'task';
+      const callBtn = document.getElementById('callBtn');
+      if (callBtn) callBtn.classList.remove('call-active');
+
       const entry = {
         task_name: task,
         category: category || null,
@@ -1243,7 +1336,7 @@ body {
         ended_at: endTime.toISOString(),
         duration_secs: duration,
         date: localDateString(startTime),
-        entry_type: 'task'
+        entry_type: entryType
       };
 
       widgetBody.classList.add('clearing');

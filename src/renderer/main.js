@@ -55,6 +55,7 @@ let currentUserId = null;
     window.currentUserId = currentUserId;
     window.currentUser = currentUser;
     console.log('Main: signed in as', session.user.email, 'uid:', currentUserId);
+    updateSidebarLogo();
 
     // Troop Mode — initialise presence subscription
     try {
@@ -132,15 +133,25 @@ function withUid(row) {
   return row;
 }
 
+function updateSidebarLogo() {
+  const logo = document.getElementById('sidebarLogo');
+  if (!logo || !currentUser || !currentUser.email) return;
+  const local = currentUser.email.split('@')[0] || '';
+  const namePart = local.split(/[\.\-_]/)[0] || local;
+  if (namePart) logo.textContent = namePart.charAt(0).toUpperCase();
+}
+
 // Receive user info from main process
 ipcRenderer.on('user-info', (event, user) => {
   currentUser = user;
+  updateSidebarLogo();
 });
 
 // Get current user on load
 (async () => {
   try {
     currentUser = await ipcRenderer.invoke('get-current-user');
+    updateSidebarLogo();
   } catch (e) {}
 })();
 

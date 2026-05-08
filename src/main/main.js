@@ -495,6 +495,8 @@ ipcMain.on('login-success', (event, payload) => {
       if (!mainWindow) createMainWindow();
       // Pass the flag in via load query string
       mainWindow.webContents.once('did-finish-load', () => {
+        // Hide widget before tour — it's alwaysOnTop and would overlay tour tooltips
+        if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
         mainWindow.webContents.send('start-tour');
       });
     }, 600);
