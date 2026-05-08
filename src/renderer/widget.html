@@ -341,7 +341,6 @@ body {
         <span id="streakBadge" style="display:none;"></span>
       </div>
       <div class="titlebar-right">
-        <button class="icon-btn" id="callBtn" title="Log inbound call" style="display:none;">☎</button>
         <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
         <button class="icon-btn" id="minimiseBtn" title="Minimise">─</button>
         <button class="icon-btn close-btn" id="closeBtn" title="Close DayTimer">✕</button>
@@ -351,7 +350,10 @@ body {
     <div class="body" id="widgetBody">
       <div class="timer-row">
         <div class="timer" id="timerDisplay">00:00:00</div>
-        <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
+        <div style="display:flex;align-items:center;gap:6px;">
+          <button class="icon-btn" id="callBtn" title="Log inbound call" style="display:none;">📞</button>
+          <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
+        </div>
       </div>
 
       <input
@@ -517,6 +519,7 @@ body {
     let seconds = 0;
     let isPaused = false;
     let pendingEntryType = 'task'; // set to 'inbound_call' when call btn used
+    let previousTask = null;       // { task, category } saved when call btn clicked
     let _troopColorLoadAttempted = false;
     let isMinimised = false;
     let dayStarted = false;
@@ -1046,13 +1049,18 @@ body {
       if (!dayStarted || isPaused) return;
       const callBtn = document.getElementById('callBtn');
 
+      // Save current task so we can restore it when the call ends
+      previousTask = {
+        task: taskInput.value.trim(),
+        category: categorySelect.value
+      };
+
       // Log the current task (if any) as a normal entry before starting the call
-      const currentTask = taskInput.value.trim();
-      if (currentTask) {
+      if (previousTask.task) {
         const endTime = new Date();
         const entry = {
-          task_name: currentTask,
-          category: categorySelect.value || null,
+          task_name: previousTask.task,
+          category: previousTask.category || null,
           started_at: startTime.toISOString(),
           ended_at: endTime.toISOString(),
           duration_secs: seconds,
@@ -1074,7 +1082,11 @@ body {
       updateStatusDotColour();
       callBtn.classList.add('call-active');
 
-      statusRow.textContent = '📞 On a call — hit Next Task when done';
+      // Flip the main button to "Return to task"
+      nextBtn.textContent = 'Return to task →';
+      nextBtn.classList.remove('end-day');
+
+      statusRow.textContent = '📞 On a call — hit Return to task when done';
       statusRow.className = 'status-row';
       setTimeout(() => {
         if (statusRow.textContent.startsWith('📞')) {
@@ -1292,6 +1304,8 @@ body {
       pauseStartedAt = null;
       pausedAccumulated = 0;
       seconds = 0;
+      pendingEntryType = 'task';
+      previousTask = null;
       dismissedUpcomingIds = new Set();
       taskInput.value = '';
       categorySelect.value = '';
@@ -1346,11 +1360,28 @@ body {
       taskInput.value = '';
       categorySelect.value = '';
       resetTimer();
+
+      // If returning from an inbound call, restore the previous task
+      if (entryType === 'inbound_call') {
+        if (previousTask && previousTask.task) {
+          taskInput.value = previousTask.task;
+          if (previousTask.category) categorySelect.value = previousTask.category;
+        }
+        previousTask = null;
+        nextBtn.textContent = 'Next Task →';
+        nextBtn.classList.remove('end-day');
+        updateStatusDotColour();
+      }
+
       taskInput.focus();
       updateUpcomingDisplay();
 
-      // Troop Mode — clear current task display while between tasks
-      try { if (window.dtTroop) window.dtTroop.update({ task: null, category: null }); } catch (e) {}
+      // Troop Mode — update with restored task (or clear if nothing to restore)
+      try {
+        if (window.dtTroop) {
+          window.dtTroop.update({ task: taskInput.value.trim() || null, category: categorySelect.value || null });
+        }
+      } catch (e) {}
 
       if (dbReady) {
         try {
