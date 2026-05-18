@@ -2204,6 +2204,26 @@ function loadSettings() {
     replayBtn.dataset.wired = 'true';
   }
 
+  // ── Admin-only: Beta updates toggle ────────────────────────
+  const ADMIN_EMAIL = 'flynn@howleruk.com';
+  const betaRow = $('betaUpdatesRow');
+  const betaToggle = $('betaUpdatesToggle');
+  if (betaRow && betaToggle && currentUser && currentUser.email === ADMIN_EMAIL) {
+    betaRow.style.display = '';
+    if (!betaToggle.dataset.wired) {
+      (async () => {
+        try {
+          const current = await ipcRenderer.invoke('get-allow-prerelease');
+          betaToggle.checked = !!current;
+        } catch (e) {}
+      })();
+      betaToggle.addEventListener('change', e => {
+        ipcRenderer.send('set-allow-prerelease', e.target.checked);
+      });
+      betaToggle.dataset.wired = 'true';
+    }
+  }
+
   // ── Microsoft Calendar integration ─────────────────────────
   setupMsIntegration();
 

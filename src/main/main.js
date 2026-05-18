@@ -33,6 +33,11 @@ if (app.isPackaged) {
 
 const store = new Store();
 
+// Apply stored prerelease preference to updater (admin staging toggle)
+if (autoUpdater) {
+  autoUpdater.allowPrerelease = store.get('allowPrerelease', false);
+}
+
 let loginWindow  = null;
 let widgetWindow = null;
 let mainWindow   = null;
@@ -658,6 +663,13 @@ ipcMain.handle('get-theme', () => store.get('theme', 'howler-light'));
 ipcMain.handle('get-current-user', () => currentUser);
 
 ipcMain.handle('get-app-version', () => app.getVersion());
+
+// ── Admin staging: pre-release toggle ───────────────────────
+ipcMain.handle('get-allow-prerelease', () => store.get('allowPrerelease', false));
+ipcMain.on('set-allow-prerelease', (_evt, enabled) => {
+  store.set('allowPrerelease', !!enabled);
+  if (autoUpdater) autoUpdater.allowPrerelease = !!enabled;
+});
 
 // ── Auto-launch on Windows startup ──────────────────────────
 // Uses Electron's built-in setLoginItemSettings which adds a registry

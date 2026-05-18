@@ -648,6 +648,7 @@ body {
       } catch (e) {}
     }
     loadWidgetPrefs();
+    loadQuickActions(); // pure IPC — no auth needed
 
     ipcRenderer.on('widget-pref-updated', (_evt, { key, value }) => {
       if (key === 'showStreak') {
