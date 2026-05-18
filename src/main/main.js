@@ -149,10 +149,13 @@ function createWidget() {
   const startHidden = process.argv.includes('--hidden');
 
   widgetWindow = new BrowserWindow({
-    width: 320,
-    height: 310,
-    x: sw - 340,
-    y: 40,
+    // 24px transparent body padding on all sides → +48 to width & height.
+    // Lets the widget's box-shadow / neon glow render without being clipped
+    // by the window frame.
+    width: 368,
+    height: 358,
+    x: sw - 364,
+    y: 16,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -176,7 +179,7 @@ function createWidget() {
   if (pos && isPositionOnVisibleDisplay(pos.x, pos.y)) {
     widgetWindow.setPosition(pos.x, pos.y);
   } else {
-    widgetWindow.setPosition(sw - 340, 40);
+    widgetWindow.setPosition(sw - 364, 16);
   }
 
   widgetWindow.on('moved', () => {
@@ -550,7 +553,7 @@ ipcMain.on('logout', async () => {
 //  IPC: WIDGET
 // ══════════════════════════════════════════════════════════════
 ipcMain.on('widget-minimise', () => {
-  if (widgetWindow) widgetWindow.setSize(320, 48, true);
+  if (widgetWindow) widgetWindow.setSize(368, 96, true); // 320+48, 48+48
 });
 
 // Forward idle-interval changes from main app → widget so it can re-arm
@@ -602,7 +605,7 @@ ipcMain.on('widget-show', () => {
 });
 
 ipcMain.on('widget-expand', () => {
-  if (widgetWindow) widgetWindow.setSize(320, 310, true);
+  if (widgetWindow) widgetWindow.setSize(368, 358, true); // 320+48, 310+48
 });
 
 // Smart click-through — renderer reports when pointer is over the visible widget area
@@ -636,8 +639,8 @@ ipcMain.on('open-external', (event, url) => {
 ipcMain.on('reset-widget-position', () => {
   if (!widgetWindow) return;
   const { width: sw } = screen.getPrimaryDisplay().workAreaSize;
-  widgetWindow.setPosition(sw - 340, 40);
-  store.set('widgetPosition', { x: sw - 340, y: 40 });
+  widgetWindow.setPosition(sw - 364, 16);
+  store.set('widgetPosition', { x: sw - 364, y: 16 });
 });
 
 // ══════════════════════════════════════════════════════════════

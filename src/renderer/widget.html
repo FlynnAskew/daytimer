@@ -15,20 +15,28 @@ body {
   background: transparent;
   overflow: hidden;
   user-select: none;
-  /* No padding — widget fills the window so Windows can't draw a frame outside it */
+  /* 24px transparent padding so the widget's box-shadow has room to render
+     uniformly on all sides — without this, the window clips the shadow at
+     its rectangular edges, producing the "square corners" / one-sided bleed
+     we used to see when the neon outline was enabled. */
+  padding: 24px;
+  /* Make the transparent margin click-through; only the .widget itself
+     captures pointer events. */
+  pointer-events: none;
 }
 
 .widget {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25);
   overflow: hidden;
   width: 320px;
   position: relative;
   transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   animation: widget-wake 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: top right;
+  pointer-events: auto;
 }
 @keyframes widget-wake {
   0%   { transform: scale(0.85); opacity: 0; }
@@ -629,13 +637,22 @@ body {
       const w = document.getElementById('widget');
       if (!w) return;
       if (!pref || !pref.enabled) {
+        // Revert to base drop-shadow (matches the CSS default on .widget)
         w.style.boxShadow  = '';
         w.style.borderColor = '';
         return;
       }
       const col = overrideColor || (pref.syncToCategory ? null : pref.color) || '#FF7D00';
-      w.style.boxShadow   = `0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px ${col}66, 0 0 14px ${col}88, 0 0 28px ${col}44`;
-      w.style.borderColor = col + '88';
+      // All glow layers are symmetric (no X/Y offset) so the outline reads as
+      // a uniform halo on every edge. The body has 24px of transparent padding,
+      // so the 18px outer glow fits without being clipped by the window frame.
+      w.style.boxShadow = [
+        `0 4px 14px rgba(0,0,0,0.35)`,    // subtle drop for depth
+        `0 0 0 1px ${col}cc`,             // crisp 1px ring
+        `0 0 10px ${col}aa`,              // tight inner glow
+        `0 0 18px ${col}55`               // soft outer glow
+      ].join(', ');
+      w.style.borderColor = col + 'aa';
     }
 
     // ── Widget prefs ──────────────────────────────────────────
@@ -645,6 +662,10 @@ body {
         _streakHidden = !prefs.showStreak;
         _neonPref = prefs.neonOutline || null;
         applyNeonOutline(_neonPref);
+        // BUG FIX: loaded prefs need to take effect on the already-rendered badge.
+        // Without this re-render, if updateStreakBadge() ran via the auth IIFE
+        // before this resolved, the badge sticks with the default _streakHidden=false.
+        if (typeof updateStreakBadge === 'function') updateStreakBadge();
       } catch (e) {}
     }
     loadWidgetPrefs();
@@ -678,9 +699,12 @@ body {
         const btn = document.createElement('button');
         btn.className = 'icon-btn';
         btn.dataset.qaId = action.id;
-        btn.title = action.name;
+        btn.title = dayStarted ? action.name : `${action.name} (start day first)`;
         btn.textContent = action.emoji;
-        btn.style.display = dayStarted ? '' : 'none';
+        // Always visible — discoverability matters more than hiding when day not started.
+        // Click handler already guards on dayStarted+isPaused, so pre-day clicks are no-ops.
+        btn.style.opacity = dayStarted ? '' : '0.4';
+        btn.style.cursor = dayStarted ? '' : 'default';
         btn.addEventListener('click', () => handleQuickAction(action));
         bar.appendChild(btn);
       });
@@ -903,7 +927,8 @@ body {
       taskInput.disabled = true;
       categorySelect.disabled = true;
       timerDisplay.textContent = '00:00:00';
-      document.querySelectorAll('#quickActionsBar button').forEach(b => b.style.display = 'none');
+      // Re-render so quick-action buttons reflect the "day not started" disabled style
+      renderQuickActions();
     }
 
     function setActiveMode() {
@@ -917,7 +942,8 @@ body {
       seconds = 0;
       taskInput.focus();
       updateStatusDotColour();
-      document.querySelectorAll('#quickActionsBar button').forEach(b => b.style.display = '');
+      // Re-render so quick-action buttons reflect the active-day style
+      renderQuickActions();
     }
 
     function setPausedMode() {
@@ -1113,7 +1139,7 @@ body {
       if (isMinimised) return;
       // Measure the widget + a little padding for the body margin
       const widgetHeight = widget.offsetHeight;
-      const totalHeight = widgetHeight + 16; // account for body padding
+      const totalHeight = widgetHeight + 48; // 24px body padding top + bottom
       ipcRenderer.send('widget-resize', totalHeight);
     }
 
