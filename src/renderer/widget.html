@@ -341,6 +341,7 @@ body {
         <span id="streakBadge" style="display:none;"></span>
       </div>
       <div class="titlebar-right">
+        <div id="quickActionsBar" style="display:flex;align-items:center;gap:4px;-webkit-app-region:no-drag;"></div>
         <button class="icon-btn" id="openMainBtn" title="Open main app">⊞</button>
         <button class="icon-btn" id="minimiseBtn" title="Minimise">─</button>
         <button class="icon-btn close-btn" id="closeBtn" title="Close DayTimer">✕</button>
@@ -350,10 +351,7 @@ body {
     <div class="body" id="widgetBody">
       <div class="timer-row">
         <div class="timer" id="timerDisplay">00:00:00</div>
-        <div style="display:flex;align-items:center;gap:6px;">
-          <button class="icon-btn" id="callBtn" title="Log inbound call" style="display:none;">📞</button>
-          <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
-        </div>
+        <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
       </div>
 
       <input
@@ -468,7 +466,8 @@ body {
         });
 
         // Now that auth is ready, refresh whatever the widget normally loads on boot
-        try { if (typeof loadCategories === 'function') await loadCategories(); } catch (e) {}
+        try { if (typeof loadQuickActions === 'function') await loadQuickActions(); } catch (e) {}
+        try { if (typeof loadCategories  === 'function') await loadCategories();  } catch (e) {}
         try { if (typeof refreshUpcoming === 'function') refreshUpcoming(); } catch (e) {}
         try { if (typeof updateStreakBadge === 'function') updateStreakBadge(); } catch (e) {}
         // Second pass catches first-install race where the categories table was empty on the first fetch
@@ -518,9 +517,13 @@ body {
     // ── State ─────────────────────────────────────────────────
     let seconds = 0;
     let isPaused = false;
-    let pendingEntryType = 'task'; // set to 'inbound_call' when call btn used
-    let previousTask = null;       // { task, category } saved when call btn clicked
+    let pendingEntryType = 'task'; // set to action's entryType when quick-action used
+    let previousTask = null;       // { task, category } saved when quick-action clicked
     let _troopColorLoadAttempted = false;
+    let quickActions = [];         // loaded from main process
+    let _streakHidden = false;     // pref from widget prefs
+    let _neonPref = null;          // neon outline config
+    let idleWarningShown = false;  // 5-min warning before auto-end
     let isMinimised = false;
     let dayStarted = false;
     let pauseStartTime = null;  // when pause began (for break logging)
@@ -610,7 +613,7 @@ body {
           // Always step back one calendar day (skips weekends/holidays automatically)
           cursor.setDate(cursor.getDate() - 1);
         }
-        if (streak >= 3) {
+        if (!_streakHidden && streak >= 3) {
           badge.style.display = 'inline-flex';
           badge.className = 'dt-streak-badge';
           badge.textContent = `🔥 ${streak}`;
@@ -620,6 +623,126 @@ body {
         }
       } catch (e) { /* silent */ }
     }
+
+    // ── Neon outline ──────────────────────────────────────────
+    function applyNeonOutline(pref, overrideColor) {
+      const w = document.getElementById('widget');
+      if (!w) return;
+      if (!pref || !pref.enabled) {
+        w.style.boxShadow  = '';
+        w.style.borderColor = '';
+        return;
+      }
+      const col = overrideColor || (pref.syncToCategory ? null : pref.color) || '#FF7D00';
+      w.style.boxShadow   = `0 8px 32px rgba(0,0,0,0.6), 0 2px 8px rgba(0,0,0,0.4), 0 0 0 1px ${col}66, 0 0 14px ${col}88, 0 0 28px ${col}44`;
+      w.style.borderColor = col + '88';
+    }
+
+    // ── Widget prefs ──────────────────────────────────────────
+    async function loadWidgetPrefs() {
+      try {
+        const prefs = await ipcRenderer.invoke('get-widget-prefs');
+        _streakHidden = !prefs.showStreak;
+        _neonPref = prefs.neonOutline || null;
+        applyNeonOutline(_neonPref);
+      } catch (e) {}
+    }
+    loadWidgetPrefs();
+
+    ipcRenderer.on('widget-pref-updated', (_evt, { key, value }) => {
+      if (key === 'showStreak') {
+        _streakHidden = !value;
+        updateStreakBadge();
+      } else if (key === 'neonOutline') {
+        _neonPref = value;
+        applyNeonOutline(_neonPref);
+      }
+    });
+
+    // ── Quick-action buttons (customisable widget bar) ────────
+    async function loadQuickActions() {
+      try {
+        quickActions = await ipcRenderer.invoke('get-quick-actions');
+      } catch (e) {
+        quickActions = [{ id: 'phone', emoji: '📞', name: 'Inbound call', category: null, entryType: 'inbound_call' }];
+      }
+      renderQuickActions();
+    }
+
+    function renderQuickActions() {
+      const bar = document.getElementById('quickActionsBar');
+      if (!bar) return;
+      bar.innerHTML = '';
+      quickActions.forEach(action => {
+        const btn = document.createElement('button');
+        btn.className = 'icon-btn';
+        btn.dataset.qaId = action.id;
+        btn.title = action.name;
+        btn.textContent = action.emoji;
+        btn.style.display = dayStarted ? '' : 'none';
+        btn.addEventListener('click', () => handleQuickAction(action));
+        bar.appendChild(btn);
+      });
+    }
+
+    async function handleQuickAction(action) {
+      if (!dayStarted || isPaused) return;
+
+      // Save current task so we can restore it when the action ends
+      previousTask = { task: taskInput.value.trim(), category: categorySelect.value };
+
+      // Log current task (if any) as a normal entry
+      if (previousTask.task) {
+        const endTime = new Date();
+        const entry = {
+          task_name: previousTask.task,
+          category:  previousTask.category || null,
+          started_at: startTime.toISOString(),
+          ended_at:   endTime.toISOString(),
+          duration_secs: seconds,
+          date: localDateString(startTime),
+          entry_type: 'task'
+        };
+        if (dbReady) {
+          try { await dbClient.from('time_entries').insert([withUid(entry)]); } catch (e) { console.error(e); }
+        }
+      }
+
+      // Set up this action as the next entry to log
+      pendingEntryType = action.entryType || 'quick_action';
+      taskInput.value  = action.name;
+      categorySelect.value = action.category || '';
+      resetTimer();
+      widgetBody.classList.add('clearing');
+      setTimeout(() => widgetBody.classList.remove('clearing'), 180);
+      updateStatusDotColour();
+
+      // Highlight the active button
+      document.querySelectorAll('#quickActionsBar button').forEach(b => b.classList.remove('call-active'));
+      const activeBtn = document.querySelector(`#quickActionsBar button[data-qa-id="${action.id}"]`);
+      if (activeBtn) activeBtn.classList.add('call-active');
+
+      // Change Next Task → Return to task
+      nextBtn.textContent = 'Return to task →';
+      nextBtn.classList.remove('end-day');
+
+      // Status toast
+      statusRow.textContent = `${action.emoji} ${action.name} — hit Return to task when done`;
+      statusRow.className = 'status-row';
+      setTimeout(() => {
+        if (statusRow.textContent.startsWith(action.emoji)) {
+          statusRow.textContent = '';
+          statusRow.className = 'status-row';
+        }
+      }, 4000);
+
+      try { if (window.dtTroop) window.dtTroop.update({ task: action.name, category: action.category || null }); } catch (e) {}
+    }
+
+    ipcRenderer.on('quick-actions-updated', (_evt, actions) => {
+      quickActions = actions;
+      renderQuickActions();
+    });
 
     // ── Troop Mode display ────────────────────────────────────
     function updateTroopBadge(roster) {
@@ -670,6 +793,7 @@ body {
       if (dot.classList.contains('paused') || dot.classList.contains('idle')) {
         dot.style.background = '';
         dot.style.boxShadow  = '';
+        if (_neonPref && _neonPref.enabled && _neonPref.syncToCategory) applyNeonOutline(_neonPref, null);
         return;
       }
       const cat = categorySelect.value;
@@ -677,10 +801,11 @@ body {
         const colour = categoryColourSafe(cat);
         dot.style.background = colour;
         dot.style.boxShadow  = `0 0 6px ${colour}`;
+        if (_neonPref && _neonPref.enabled && _neonPref.syncToCategory) applyNeonOutline(_neonPref, colour);
       } else {
-        // No category — clear inline style and let CSS default kick in
         dot.style.background = '';
         dot.style.boxShadow  = '';
+        if (_neonPref && _neonPref.enabled && _neonPref.syncToCategory) applyNeonOutline(_neonPref, null);
       }
     }
     function escapeHtmlSafe(s) {
@@ -777,8 +902,7 @@ body {
       taskInput.disabled = true;
       categorySelect.disabled = true;
       timerDisplay.textContent = '00:00:00';
-      const callBtn = document.getElementById('callBtn');
-      if (callBtn) callBtn.style.display = 'none';
+      document.querySelectorAll('#quickActionsBar button').forEach(b => b.style.display = 'none');
     }
 
     function setActiveMode() {
@@ -792,8 +916,7 @@ body {
       seconds = 0;
       taskInput.focus();
       updateStatusDotColour();
-      const callBtn = document.getElementById('callBtn');
-      if (callBtn) callBtn.style.display = '';
+      document.querySelectorAll('#quickActionsBar button').forEach(b => b.style.display = '');
     }
 
     function setPausedMode() {
@@ -852,10 +975,46 @@ body {
     async function loadUpcoming() {
       if (!dbReady) return;
       try {
-        const { data } = await dbClient.from('day_plans')
+        const { data: plans } = await dbClient.from('day_plans')
           .select('*').eq('date', todayStr())
           .order('planned_start', { ascending: true });
-        todayPlan = data || [];
+        todayPlan = plans || [];
+
+        // Merge in MS365 calendar events that have a category assigned
+        try {
+          const connected = await ipcRenderer.invoke('graph-is-connected');
+          if (connected) {
+            const dayStart = new Date(); dayStart.setHours(0,0,0,0);
+            const dayEnd   = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+            const result   = await ipcRenderer.invoke('graph-list-events', {
+              startISO: dayStart.toISOString(), endISO: dayEnd.toISOString()
+            });
+            if (result && result.ok && result.events.length > 0) {
+              const ids = result.events.map(e => e.ms_event_id);
+              const { data: catData } = await dbClient.from('calendar_events')
+                .select('ms_event_id, category').eq('date', todayStr()).in('ms_event_id', ids);
+              const catMap = {};
+              (catData || []).forEach(c => { if (c.category) catMap[c.ms_event_id] = c.category; });
+              result.events.forEach(ev => {
+                if (ev.is_cancelled || ev.is_all_day) return;
+                const cat = catMap[ev.ms_event_id];
+                if (!cat) return; // only show events that have a category assigned
+                const s = new Date(ev.starts_at), e2 = new Date(ev.ends_at);
+                todayPlan.push({
+                  _isCalendarEvent: true,
+                  id: 'cal_' + ev.ms_event_id,
+                  task_name:     ev.subject,
+                  category:      cat,
+                  planned_start: pad(s.getHours())  + ':' + pad(s.getMinutes()),
+                  planned_end:   pad(e2.getHours()) + ':' + pad(e2.getMinutes()),
+                  date: todayStr()
+                });
+              });
+              todayPlan.sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+            }
+          }
+        } catch (e) { /* MS Graph unavailable or not connected */ }
+
         updateUpcomingDisplay();
       } catch (e) { console.error(e); }
     }
@@ -1044,80 +1203,32 @@ body {
       ipcRenderer.send('quit-app');
     });
 
-    // ── Inbound call button ───────────────────────────────────
-    document.getElementById('callBtn').addEventListener('click', async () => {
-      if (!dayStarted || isPaused) return;
-      const callBtn = document.getElementById('callBtn');
-
-      // Save current task so we can restore it when the call ends
-      previousTask = {
-        task: taskInput.value.trim(),
-        category: categorySelect.value
-      };
-
-      // Log the current task (if any) as a normal entry before starting the call
-      if (previousTask.task) {
-        const endTime = new Date();
-        const entry = {
-          task_name: previousTask.task,
-          category: previousTask.category || null,
-          started_at: startTime.toISOString(),
-          ended_at: endTime.toISOString(),
-          duration_secs: seconds,
-          date: localDateString(startTime),
-          entry_type: 'task'
-        };
-        if (dbReady) {
-          try { await dbClient.from('time_entries').insert([withUid(entry)]); } catch (e) { console.error(e); }
-        }
-      }
-
-      // Set up the inbound call as the next entry to be logged
-      pendingEntryType = 'inbound_call';
-      taskInput.value = 'Inbound call';
-      categorySelect.value = '';
-      resetTimer();
-      widgetBody.classList.add('clearing');
-      setTimeout(() => widgetBody.classList.remove('clearing'), 180);
-      updateStatusDotColour();
-      callBtn.classList.add('call-active');
-
-      // Flip the main button to "Return to task"
-      nextBtn.textContent = 'Return to task →';
-      nextBtn.classList.remove('end-day');
-
-      statusRow.textContent = '📞 On a call — hit Return to task when done';
-      statusRow.className = 'status-row';
-      setTimeout(() => {
-        if (statusRow.textContent.startsWith('📞')) {
-          statusRow.textContent = '';
-          statusRow.className = 'status-row';
-        }
-      }, 4000);
-
-      try {
-        if (window.dtTroop && dayStarted) {
-          window.dtTroop.update({ task: 'Inbound call', category: null });
-        }
-      } catch (e) {}
-    });
-
     // ── Open main app ─────────────────────────────────────────
     openMainBtn.addEventListener('click', () => {
       ipcRenderer.send('open-main');
     });
 
-    // ── Idle detection (auto-stop after 1hr inactivity post-5pm) ─
+    // ── Idle detection (auto-stop after 1hr inactivity from 5:30pm) ─
     function checkIdle() {
       if (!dayStarted) return;
       const now = new Date();
-      const hoursInactive = (Date.now() - lastActivityTime) / (1000 * 60 * 60);
-      const is5pmOrLater = now.getHours() >= 17;
+      const minsSinceMidnight = now.getHours() * 60 + now.getMinutes();
+      const is530pmOrLater   = minsSinceMidnight >= 17 * 60 + 30;
+      const minsInactive     = (Date.now() - lastActivityTime) / 60000;
 
-      if (is5pmOrLater && hoursInactive >= 1) {
-        // Auto-end the day
-        console.log('Idle auto-stop triggered');
+      if (is530pmOrLater && minsInactive >= 60) {
+        idleWarningShown = false;
         endDay(true);
+      } else if (is530pmOrLater && minsInactive >= 55 && !idleWarningShown) {
+        idleWarningShown = true;
+        try {
+          if (window.dtFun) {
+            window.dtFun.toast(
+              'DayTimer will auto-end your day in 5 minutes due to inactivity. Tap anywhere to stay active.',
+              { emoji: '⏰', duration: 10000 }
+            );
+          }
+        } catch (e) {}
       }
     }
 
@@ -1172,9 +1283,9 @@ body {
       lastCheckInPrompt = Date.now();
     });
 
-    // Track user activity
+    // Track user activity (reset idle warning on any interaction)
     ['mousemove', 'keydown', 'click'].forEach(evt => {
-      window.addEventListener(evt, () => { lastActivityTime = Date.now(); });
+      window.addEventListener(evt, () => { lastActivityTime = Date.now(); idleWarningShown = false; });
     });
     setInterval(checkIdle, 60000); // check every minute
 
@@ -1340,8 +1451,7 @@ body {
       const duration = seconds;
       const entryType = pendingEntryType || 'task';
       pendingEntryType = 'task';
-      const callBtn = document.getElementById('callBtn');
-      if (callBtn) callBtn.classList.remove('call-active');
+      document.querySelectorAll('#quickActionsBar button').forEach(b => b.classList.remove('call-active'));
 
       const entry = {
         task_name: task,

@@ -38,6 +38,15 @@ let widgetWindow = null;
 let mainWindow   = null;
 let currentUser  = null;
 let pendingFirstLogin = false;
+let pendingWhatsNew   = false; // true when returning user opens a new version
+
+const DEFAULT_QUICK_ACTIONS = [
+  { id: 'phone', emoji: '📞', name: 'Inbound call', category: null, entryType: 'inbound_call' }
+];
+const DEFAULT_WIDGET_PREFS = {
+  showStreak:   true,
+  neonOutline:  { enabled: false, color: '#FF7D00', syncToCategory: false }
+};
 
 // ── Register custom protocol for OAuth callbacks ──────────────
 // This makes Windows recognise daytimer:// links and open this app
@@ -477,6 +486,14 @@ ipcMain.on('login-success', (event, payload) => {
     pendingFirstLogin = true;
   }
 
+  // For returning users: check if the app version has changed since last run
+  const lastSeenVersion = store.get('lastSeenVersion', '0.0.0');
+  const currentVersion  = app.getVersion();
+  if (!isFirstLogin && lastSeenVersion !== currentVersion) {
+    pendingWhatsNew = true;
+  }
+  store.set('lastSeenVersion', currentVersion);
+
   store.set('lastUser', user);
 
   // Close login window and open the app
@@ -493,13 +510,20 @@ ipcMain.on('login-success', (event, payload) => {
   if (isFirstLogin) {
     setTimeout(() => {
       if (!mainWindow) createMainWindow();
-      // Pass the flag in via load query string
       mainWindow.webContents.once('did-finish-load', () => {
         // Hide widget before tour — it's alwaysOnTop and would overlay tour tooltips
         if (widgetWindow && !widgetWindow.isDestroyed()) widgetWindow.hide();
         mainWindow.webContents.send('start-tour');
       });
     }, 600);
+  } else if (pendingWhatsNew) {
+    pendingWhatsNew = false;
+    setTimeout(() => {
+      if (!mainWindow) createMainWindow();
+      const send = () => mainWindow.webContents.send('start-whats-new-tour', currentVersion);
+      if (mainWindow.webContents.isLoading()) mainWindow.webContents.once('did-finish-load', send);
+      else send();
+    }, 800);
   }
 });
 
@@ -528,6 +552,28 @@ ipcMain.on('widget-minimise', () => {
 ipcMain.on('idle-interval-changed', (_evt, mins) => {
   if (widgetWindow && !widgetWindow.isDestroyed()) {
     widgetWindow.webContents.send('idle-interval-changed', mins);
+  }
+});
+
+// ── Quick-action buttons (customisable widget bar) ────────────
+ipcMain.handle('get-quick-actions', () => store.get('quickActions', DEFAULT_QUICK_ACTIONS));
+
+ipcMain.on('set-quick-actions', (_evt, actions) => {
+  store.set('quickActions', actions);
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.webContents.send('quick-actions-updated', actions);
+  }
+});
+
+// ── Widget preferences (streak, neon outline, etc.) ──────────
+ipcMain.handle('get-widget-prefs', () => store.get('widgetPrefs', DEFAULT_WIDGET_PREFS));
+
+ipcMain.on('set-widget-pref', (_evt, { key, value }) => {
+  const prefs = store.get('widgetPrefs', { ...DEFAULT_WIDGET_PREFS });
+  prefs[key] = value;
+  store.set('widgetPrefs', prefs);
+  if (widgetWindow && !widgetWindow.isDestroyed()) {
+    widgetWindow.webContents.send('widget-pref-updated', { key, value });
   }
 });
 

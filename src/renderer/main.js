@@ -2234,11 +2234,135 @@ function loadSettings() {
     idleSel.value = saved;
     idleSel.addEventListener('change', () => {
       try { localStorage.setItem('idleCheckInterval', idleSel.value); } catch (e) {}
-      // Notify the widget so it picks up the new interval immediately
       ipcRenderer.send('idle-interval-changed', parseInt(idleSel.value, 10) || 0);
     });
     idleSel.dataset.wired = 'true';
   }
+
+  // ── Widget Bar (quick-action buttons) ──────────────────────
+  loadQuickActionsSettings();
+
+  // ── Streak badge toggle ────────────────────────────────────
+  const streakT = $('showStreakToggle');
+  if (streakT && !streakT.dataset.wired) {
+    ipcRenderer.invoke('get-widget-prefs').then(prefs => {
+      streakT.checked = prefs.showStreak !== false;
+    }).catch(() => {});
+    streakT.addEventListener('change', () => {
+      ipcRenderer.send('set-widget-pref', { key: 'showStreak', value: streakT.checked });
+    });
+    streakT.dataset.wired = 'true';
+  }
+
+  // ── Neon outline ───────────────────────────────────────────
+  const neonToggle = $('neonOutlineToggle');
+  const neonOptions = $('neonOutlineOptions');
+  const neonPicker  = $('neonColorPicker');
+  const neonFixed   = $('neonColorFixed');
+  const neonSync    = $('neonColorSync');
+  if (neonToggle && !neonToggle.dataset.wired) {
+    ipcRenderer.invoke('get-widget-prefs').then(prefs => {
+      const n = prefs.neonOutline || {};
+      neonToggle.checked = !!n.enabled;
+      if (neonOptions) neonOptions.style.display = n.enabled ? 'flex' : 'none';
+      if (neonPicker)  neonPicker.value = n.color || '#FF7D00';
+      if (n.syncToCategory) { if (neonSync) neonSync.checked = true; }
+      else                  { if (neonFixed) neonFixed.checked = true; }
+    }).catch(() => {});
+
+    const saveNeon = () => {
+      const pref = {
+        enabled:         neonToggle.checked,
+        color:           neonPicker  ? neonPicker.value  : '#FF7D00',
+        syncToCategory:  neonSync    ? neonSync.checked  : false
+      };
+      if (neonOptions) neonOptions.style.display = neonToggle.checked ? 'flex' : 'none';
+      ipcRenderer.send('set-widget-pref', { key: 'neonOutline', value: pref });
+    };
+    neonToggle.addEventListener('change', saveNeon);
+    if (neonPicker)  neonPicker.addEventListener('input', saveNeon);
+    if (neonFixed)   neonFixed.addEventListener('change', saveNeon);
+    if (neonSync)    neonSync.addEventListener('change', saveNeon);
+    neonToggle.dataset.wired = 'true';
+  }
+}
+
+// ── Widget Bar settings ──────────────────────────────────────
+async function loadQuickActionsSettings() {
+  const list    = $('quickActionsList');
+  const addBtn  = $('addQuickActionBtn');
+  if (!list) return;
+
+  let actions = [];
+  try { actions = await ipcRenderer.invoke('get-quick-actions'); } catch (e) {}
+
+  // Build the available categories list for the dropdowns
+  let catNames = ['(no category)'];
+  try {
+    const { data } = await dbClient.from('categories').select('name').order('sort_order', { ascending: true });
+    if (data && data.length) catNames = ['(no category)', ...data.map(c => c.name)];
+  } catch (e) {}
+
+  function renderActionList() {
+    list.innerHTML = '';
+    actions.forEach((action, idx) => {
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+      row.innerHTML = `
+        <input type="text" value="${escapeAttr(action.emoji)}" maxlength="2"
+          style="width:36px;text-align:center;font-size:18px;padding:4px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);"
+          data-field="emoji" data-idx="${idx}">
+        <input type="text" value="${escapeAttr(action.name)}" placeholder="Button name (tooltip)"
+          style="flex:1;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text);"
+          data-field="name" data-idx="${idx}">
+        <select style="padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;font-size:12px;color:var(--text);" data-field="category" data-idx="${idx}">
+          ${catNames.map(c => `<option value="${c === '(no category)' ? '' : c}" ${(action.category || '') === (c === '(no category)' ? '' : c) ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <button data-del="${idx}" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:16px;padding:2px 4px;">✕</button>
+      `;
+      list.appendChild(row);
+    });
+
+    list.querySelectorAll('input, select').forEach(el => {
+      el.addEventListener('change', () => {
+        const idx   = parseInt(el.dataset.idx);
+        const field = el.dataset.field;
+        actions[idx][field] = el.value;
+        ipcRenderer.send('set-quick-actions', actions);
+      });
+      el.addEventListener('input', () => {
+        const idx   = parseInt(el.dataset.idx);
+        const field = el.dataset.field;
+        actions[idx][field] = el.value;
+        ipcRenderer.send('set-quick-actions', actions);
+      });
+    });
+    list.querySelectorAll('[data-del]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        actions.splice(parseInt(btn.dataset.del), 1);
+        ipcRenderer.send('set-quick-actions', actions);
+        renderActionList();
+      });
+    });
+  }
+
+  function escapeAttr(s) { return String(s || '').replace(/"/g, '&quot;'); }
+
+  if (addBtn && !addBtn.dataset.wired) {
+    addBtn.addEventListener('click', () => {
+      if (actions.length >= 4) {
+        if (window.dtFun) window.dtFun.toast('Maximum 4 quick-action buttons', { emoji: '⚠️', duration: 3000 });
+        return;
+      }
+      const id = 'qa_' + Date.now();
+      actions.push({ id, emoji: '⭐', name: 'New button', category: null, entryType: 'quick_action' });
+      ipcRenderer.send('set-quick-actions', actions);
+      renderActionList();
+    });
+    addBtn.dataset.wired = 'true';
+  }
+
+  renderActionList();
 }
 
 async function setupAutolaunch() {
@@ -3928,6 +4052,51 @@ async function startOnboardingTour() {
 // Listen for trigger from main process
 ipcRenderer.on('start-tour', () => {
   startOnboardingTour();
+});
+
+// ── "What's new" tour (shown to returning users on first run of a new version) ──
+const WHATS_NEW = {
+  '5.5.0': [
+    {
+      title: "What's new in v5.5.0 🎉",
+      body: "A quick look at what's changed since you last opened DayTimer. Use <strong>Next</strong> to step through."
+    },
+    {
+      title: "Customisable widget bar",
+      body: "The quick-action buttons in the widget header are now yours to configure. Add emoji shortcuts for anything you do regularly — 🚨 disturbances, 🍌 snack breaks, 🚽 comfort breaks. Head to <strong>Settings → Widget Bar</strong> to set them up."
+    },
+    {
+      title: "Calendar events in the widget",
+      body: "If you've connected your Microsoft 365 calendar and assigned a category to a meeting, it now appears in the <strong>Coming Up</strong> panel on your widget automatically."
+    },
+    {
+      title: "Smarter auto end-of-day",
+      body: "DayTimer now auto-ends your day after 1 hour of inactivity from <strong>5:30pm</strong> (previously 5pm), and gives you a <strong>5-minute warning toast</strong> before it does so."
+    },
+    {
+      title: "Streak badge & neon outline",
+      body: "You can now <strong>hide the 🔥 streak badge</strong> to free up space for more widget buttons. There's also a new <strong>neon glow outline</strong> for the widget — pick a colour or sync it to your current category. Both in <strong>Settings → Appearance</strong>."
+    }
+  ]
+};
+
+async function startWhatsNewTour(version) {
+  await waitForAuth(2000);
+  const steps = WHATS_NEW[version];
+  if (!steps || !steps.length) return;
+  if (typeof window.tourRun !== 'function') return;
+  window.tourRun(
+    steps.map(s => ({ target: null, title: s.title, body: s.body })),
+    {
+      storageKey: `daytimer_whatsnew_${version}`,
+      finalLabel: 'Got it — let\'s go!',
+      onFinish: () => { try { navigateTo('tracker'); } catch (e) {} }
+    }
+  );
+}
+
+ipcRenderer.on('start-whats-new-tour', (_evt, version) => {
+  startWhatsNewTour(version);
 });
 
 // Listen for updater logs from main process so they appear in DevTools

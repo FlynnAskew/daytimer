@@ -499,8 +499,47 @@
         </div>
 
         <div class="settings-section">
+          <div class="section-title">Widget Bar</div>
+          <div class="section-subtitle">Quick-action buttons in the widget header. Click one to instantly log your current task and start the new activity. Max 4 buttons.</div>
+          <div id="quickActionsList" style="display:flex;flex-direction:column;gap:8px;margin-bottom:12px;"></div>
+          <button class="add-cat-btn" id="addQuickActionBtn">+ Add button</button>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">Appearance</div>
           <div class="section-subtitle">Click a theme — the whole app (and floating widget) updates instantly.</div>
+
+          <div class="field-row" style="margin-bottom:12px;">
+            <div class="field-label">Streak badge</div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="showStreakToggle" checked>
+                <span>Show 🔥 streak badge in widget</span>
+              </label>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Hiding it frees up space for more widget bar buttons.</div>
+            </div>
+          </div>
+
+          <div class="field-row" style="margin-bottom:16px;">
+            <div class="field-label">Neon outline</div>
+            <div style="display:flex;flex-direction:column;gap:8px;">
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="neonOutlineToggle">
+                <span>Add glow outline to widget</span>
+              </label>
+              <div id="neonOutlineOptions" style="display:none;padding-left:4px;display:flex;flex-direction:column;gap:6px;">
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                  <input type="radio" name="neonColorMode" id="neonColorFixed" value="fixed" checked>
+                  <span>Fixed colour</span>
+                  <input type="color" id="neonColorPicker" value="#FF7D00" style="width:32px;height:22px;border:none;background:none;cursor:pointer;padding:0;">
+                </label>
+                <label style="display:flex;align-items:center;gap:8px;font-size:12px;cursor:pointer;">
+                  <input type="radio" name="neonColorMode" id="neonColorSync" value="sync">
+                  <span>Sync to current category colour</span>
+                </label>
+              </div>
+            </div>
+          </div>
 
           <div class="theme-section-label">Dark</div>
           <div class="theme-grid" id="themeGridDark"></div>
