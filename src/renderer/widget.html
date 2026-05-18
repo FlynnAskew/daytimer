@@ -1498,9 +1498,12 @@ body {
       categorySelect.value = '';
       resetTimer();
 
-      // If returning from an inbound call, restore the previous task
-      if (entryType === 'inbound_call') {
-        if (previousTask && previousTask.task) {
+      // If returning from ANY quick-action (phone / break / disturbance / custom),
+      // restore the previous task and flip the button label back to "Next Task →".
+      // `previousTask` is set in handleQuickAction() and is the canonical signal
+      // that we're returning, regardless of which custom entryType the button used.
+      if (previousTask) {
+        if (previousTask.task) {
           taskInput.value = previousTask.task;
           if (previousTask.category) categorySelect.value = previousTask.category;
         }
