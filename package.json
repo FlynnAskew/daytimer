@@ -1,6 +1,6 @@
 {
   "name": "daytimer",
-  "version": "5.5.2",
+  "version": "5.5.3-beta.1",
   "description": "Personal time tracking app with floating widget and full dashboard",
   "main": "src/main/main.js",
   "author": {
