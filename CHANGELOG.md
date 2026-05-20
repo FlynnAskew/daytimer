@@ -2,6 +2,11 @@
 
 All notable changes to DayTimer.
 
+## [5.5.4] — 2026-05-20
+
+### Changed
+- "What's new" tour now rolls up every feature added since 5.4.1 into a single walkthrough, so team members updating from 5.4.1 see the full picture
+
 ## [5.5.3] — 2026-05-20
 
 ### Added

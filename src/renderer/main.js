@@ -4312,6 +4312,35 @@ const WHATS_NEW = {
       title: "Polish & fixes",
       body: "Plenty of smaller fixes: the minimised widget no longer blocks clicks on whatever's behind it, the widget's neon glow renders cleanly, quick-action buttons always show, and the streak badge hides instantly when you turn it off."
     }
+  ],
+  // 5.5.4 is the first build the wider team receives (everyone else jumps
+  // straight from 5.4.1), so this entry rolls up *every* feature added
+  // across 5.5.0 → 5.5.3 into one tour.
+  '5.5.4': [
+    {
+      title: "What's new in DayTimer 🎉",
+      body: "Quite a lot has changed since you last opened DayTimer. Here's a quick tour of the highlights — use <strong>Next</strong> to step through."
+    },
+    {
+      title: "Customisable widget bar",
+      body: "The quick-action buttons in the widget header are now yours to configure. Add emoji shortcuts for anything you do regularly — 🚨 disturbances, ☕ breaks, 📞 inbound calls. One click logs your current task and starts the new activity; <strong>Return to task</strong> then picks up where you left off. Set them up in <strong>Settings → Widget Bar</strong>."
+    },
+    {
+      title: "Calendar events in the widget",
+      body: "Connect your Microsoft 365 calendar and any meeting you've given a category to will appear automatically in the <strong>Coming Up</strong> panel on your widget."
+    },
+    {
+      title: "Smarter auto end-of-day",
+      body: "DayTimer now auto-ends your day after 1 hour of inactivity from <strong>5:30pm</strong>, with a <strong>5-minute warning</strong> before it does — so you won't lose track if you forget to end the day."
+    },
+    {
+      title: "Streak badge & neon outline",
+      body: "Keep a 🔥 <strong>streak</strong> going for every working day you track — weekends and bank holidays don't break it. Prefer a cleaner look? Hide the badge in <strong>Settings → Appearance</strong>, where you'll also find a new <strong>neon glow outline</strong> for the widget."
+    },
+    {
+      title: "Got an idea? Tell us 💡",
+      body: "There's now a <strong>Feature Requests</strong> box. Spotted something that would make DayTimer better? Head to <strong>Settings → Feature Requests</strong>, type your idea and hit <strong>Register request</strong> — it goes straight to the team, and you can track its status there."
+    }
   ]
 };
 
