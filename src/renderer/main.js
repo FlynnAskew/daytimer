@@ -4216,6 +4216,29 @@ function buildTourSteps() {
       }
     },
     {
+      target: () => {
+        const titles = document.querySelectorAll('.section-title');
+        for (const t of titles) {
+          if (t.textContent.trim().startsWith('Feature Requests')) return t.closest('.settings-section');
+        }
+        return null;
+      },
+      title: 'Got an idea? 💡',
+      body: `Spotted something that would make DayTimer better? Head to <strong>Settings → Feature Requests</strong>, type your idea, and hit <strong>Register request</strong>. It goes straight to the team — we read every one, and you can see the status of yours right here.`,
+      placement: 'auto',
+      onShow: async () => {
+        navigateTo('settings');
+        await new Promise(r => setTimeout(r, 100));
+        const titles = document.querySelectorAll('.section-title');
+        for (const t of titles) {
+          if (t.textContent.trim().startsWith('Feature Requests')) {
+            t.closest('.settings-section')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            break;
+          }
+        }
+      }
+    },
+    {
       target: null,
       title: `You're all set, ${name}! 🎉`,
       body: `That's the lot. All the best with DayTimer — hope it makes time tracking feel less like a faff.<br><br>If you ever want to run through this tour again, you can find a <strong>Replay tour</strong> button in <strong>Settings → About</strong>.`,

@@ -2,6 +2,21 @@
 
 All notable changes to DayTimer.
 
+## [5.5.2] — 2026-05-20
+
+### Added
+- **Feature Requests** — submit ideas from Settings; the admin reviews them and can mark them Planned / Complete / Cancelled
+- Customisable widget quick-action bar (up to 4 buttons)
+- Admin beta-update channel for staged rollouts
+- Onboarding tour now covers feature requests
+
+### Fixed
+- Minimised widget no longer blocks clicks on apps underneath it
+- Widget neon outline renders as a uniform glow (no square corners or bottom bleed)
+- Quick-action buttons stay visible in the widget
+- Streak badge hides immediately when the setting is turned off
+- Custom quick-action buttons now correctly return to "Next Task" after use
+
 ## [4.0.0] — 2026-04-30
 
 ### Packaging & Distribution
