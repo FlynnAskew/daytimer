@@ -2,15 +2,17 @@
 
 All notable changes to DayTimer.
 
-## [5.5.2] — 2026-05-20
+## [5.5.3] — 2026-05-20
 
 ### Added
 - **Feature Requests** — submit ideas from Settings; the admin reviews them and can mark them Planned / Complete / Cancelled
 - Customisable widget quick-action bar (up to 4 buttons)
 - Admin beta-update channel for staged rollouts
 - Onboarding tour now covers feature requests
+- "What's new" tour shown to returning users on update
 
 ### Fixed
+- Installer no longer shows the "DayTimer cannot be closed" dialog — it now closes the running app cleanly before updating
 - Minimised widget no longer blocks clicks on apps underneath it
 - Widget neon outline renders as a uniform glow (no square corners or bottom bleed)
 - Quick-action buttons stay visible in the widget

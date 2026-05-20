@@ -4298,6 +4298,20 @@ const WHATS_NEW = {
       title: "Streak badge & neon outline",
       body: "You can now <strong>hide the 🔥 streak badge</strong> to free up space for more widget buttons. There's also a new <strong>neon glow outline</strong> for the widget — pick a colour or sync it to your current category. Both in <strong>Settings → Appearance</strong>."
     }
+  ],
+  '5.5.3': [
+    {
+      title: "What's new in v5.5.3 🎉",
+      body: "A quick look at what's changed since you last opened DayTimer. Use <strong>Next</strong> to step through."
+    },
+    {
+      title: "Got an idea? Tell us 💡",
+      body: "DayTimer now has a <strong>Feature Requests</strong> box. Spotted something that would make it better? Head to <strong>Settings → Feature Requests</strong>, type your idea and hit <strong>Register request</strong> — it goes straight to the team. You can see the status of your requests right there too."
+    },
+    {
+      title: "Polish & fixes",
+      body: "Plenty of smaller fixes: the minimised widget no longer blocks clicks on whatever's behind it, the widget's neon glow renders cleanly, quick-action buttons always show, and the streak badge hides instantly when you turn it off."
+    }
   ]
 };
 
