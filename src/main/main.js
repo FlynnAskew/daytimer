@@ -552,7 +552,10 @@ ipcMain.on('logout', async () => {
 // ══════════════════════════════════════════════════════════════
 //  IPC: WIDGET
 // ══════════════════════════════════════════════════════════════
+let widgetMinimised = false;
+
 ipcMain.on('widget-minimise', () => {
+  widgetMinimised = true;
   if (widgetWindow) widgetWindow.setSize(368, 96, true); // 320+48, 48+48
 });
 
@@ -605,6 +608,7 @@ ipcMain.on('widget-show', () => {
 });
 
 ipcMain.on('widget-expand', () => {
+  widgetMinimised = false;
   if (widgetWindow) widgetWindow.setSize(368, 358, true); // 320+48, 310+48
 });
 
@@ -621,10 +625,13 @@ ipcMain.on('widget-set-clickthrough', (event, ignore) => {
 });
 
 ipcMain.on('widget-resize', (event, height) => {
+  // Never let a content-driven resize fight the minimised size — otherwise the
+  // window snaps back to a tall (expanded) footprint while only the bar shows,
+  // leaving an invisible click-blocking dead zone over the apps underneath.
+  if (widgetMinimised) return;
   if (widgetWindow) {
     const [w] = widgetWindow.getSize();
-    const [, h] = widgetWindow.getSize();
-    if (h > 60) widgetWindow.setSize(w, Math.max(200, Math.round(height)), true);
+    widgetWindow.setSize(w, Math.max(200, Math.round(height)), true);
   }
 });
 

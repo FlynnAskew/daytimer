@@ -585,6 +585,23 @@
         </div>
 
         <div class="settings-section">
+          <div class="section-title">Feature Requests</div>
+          <div class="section-subtitle">Got an idea for DayTimer? Type it below and register it — it goes straight to the admin.</div>
+          <textarea id="featureRequestInput" rows="3" placeholder="Describe the change or feature you'd like…"
+            style="width:100%;max-width:480px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);font-family:inherit;resize:vertical;"></textarea>
+          <div style="margin-top:8px;">
+            <button class="modal-btn" id="submitFeatureRequestBtn">Register request</button>
+          </div>
+          <div id="myFeatureRequests" style="display:flex;flex-direction:column;gap:6px;margin-top:14px;"></div>
+        </div>
+
+        <div class="settings-section" id="featureRequestsAdminSection" style="display:none;">
+          <div class="section-title">New Feature Requests <span id="frAdminCount" style="font-size:11px;font-weight:600;color:#fff;background:var(--accent);border-radius:10px;padding:1px 8px;margin-left:4px;"></span></div>
+          <div class="section-subtitle">Requests from all users. Mark them planned when adding to an update, complete when shipped, or cancel.</div>
+          <div id="featureRequestsAdminList" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+
+        <div class="settings-section">
           <div class="section-title">About</div>
           <div class="field-row">
             <div class="field-label">Version</div>

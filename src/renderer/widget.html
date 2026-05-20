@@ -20,9 +20,6 @@ body {
      its rectangular edges, producing the "square corners" / one-sided bleed
      we used to see when the neon outline was enabled. */
   padding: 24px;
-  /* Make the transparent margin click-through; only the .widget itself
-     captures pointer events. */
-  pointer-events: none;
 }
 
 .widget {
@@ -36,7 +33,6 @@ body {
   transition: height 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   animation: widget-wake 0.45s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: top right;
-  pointer-events: auto;
 }
 @keyframes widget-wake {
   0%   { transform: scale(0.85); opacity: 0; }
@@ -1148,6 +1144,30 @@ body {
       resizeWindowToContent();
     });
     resizeObserver.observe(widget);
+
+    // ── Click-through for transparent areas ───────────────────
+    // The window is bigger than the visible widget: 24px transparent padding
+    // all round (room for the glow), and when minimised the window keeps a
+    // chunk of height. Those transparent regions would otherwise capture OS
+    // clicks and block whatever app sits underneath. We toggle the window's
+    // ignore-mouse-events flag depending on whether the cursor is over the
+    // opaque .widget element. forward:true keeps mousemove events flowing
+    // while ignoring is active, so we can detect the cursor re-entering.
+    let _clickThrough = false;
+    function setClickThrough(ignore) {
+      if (ignore === _clickThrough) return;
+      _clickThrough = ignore;
+      ipcRenderer.send('widget-set-clickthrough', ignore);
+    }
+    document.addEventListener('mousemove', (e) => {
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      // The transparent 24px padding belongs to <body>; everything the user
+      // can actually see/interact with (#widget, #closeConfirm overlay, etc.)
+      // is a child element. So "cursor over bare body/html" == transparent
+      // dead area → let clicks pass through; anything else → capture them.
+      const overContent = !!(el && el !== document.body && el !== document.documentElement);
+      setClickThrough(!overContent);
+    });
 
     // ── Pause / Resume ────────────────────────────────────────
     pauseBtn.addEventListener('click', () => {

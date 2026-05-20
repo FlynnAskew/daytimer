@@ -2262,6 +2262,10 @@ function loadSettings() {
   // ── Widget Bar (quick-action buttons) ──────────────────────
   loadQuickActionsSettings();
 
+  // ── Feature Requests ───────────────────────────────────────
+  loadFeatureRequests();
+  loadFeatureRequestsAdmin();
+
   // ── Streak badge toggle ────────────────────────────────────
   const streakT = $('showStreakToggle');
   if (streakT && !streakT.dataset.wired) {
@@ -2383,6 +2387,180 @@ async function loadQuickActionsSettings() {
   }
 
   renderActionList();
+}
+
+// ── Feature Requests ─────────────────────────────────────────
+const FR_ADMIN_EMAIL = 'flynn@howleruk.com';
+const FR_STATUS_STYLE = {
+  new:       { label: 'New',       bg: 'var(--accent)', fg: '#fff' },
+  planned:   { label: 'Planned',   bg: '#3b82f6',       fg: '#fff' },
+  complete:  { label: 'Complete',  bg: '#22c55e',       fg: '#fff' },
+  cancelled: { label: 'Cancelled', bg: 'var(--surface2)', fg: 'var(--text-dim)' }
+};
+
+function frStatusBadge(status) {
+  const s = FR_STATUS_STYLE[status] || FR_STATUS_STYLE.new;
+  const span = document.createElement('span');
+  span.textContent = s.label;
+  span.style.cssText = `font-size:10px;font-weight:600;border-radius:10px;padding:2px 8px;background:${s.bg};color:${s.fg};white-space:nowrap;`;
+  return span;
+}
+
+// User-facing: submit a request + see your own submissions
+async function loadFeatureRequests() {
+  const input  = $('featureRequestInput');
+  const btn    = $('submitFeatureRequestBtn');
+  const myList = $('myFeatureRequests');
+  if (!input || !btn) return;
+
+  async function renderMine() {
+    if (!myList || !dbReady) return;
+    try {
+      const { data } = await dbClient.from('feature_requests')
+        .select('*')
+        .eq('user_id', currentUserId)
+        .order('created_at', { ascending: false });
+      myList.innerHTML = '';
+      if (!data || !data.length) return;
+      const heading = document.createElement('div');
+      heading.textContent = 'Your requests';
+      heading.style.cssText = 'font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:2px;';
+      myList.appendChild(heading);
+      data.forEach(r => {
+        const row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;';
+        const text = document.createElement('div');
+        text.textContent = r.request_text;
+        text.style.cssText = 'flex:1;font-size:12px;color:var(--text);line-height:1.4;white-space:pre-wrap;';
+        row.appendChild(text);
+        row.appendChild(frStatusBadge(r.status));
+        myList.appendChild(row);
+      });
+    } catch (e) { console.error('renderMine failed', e); }
+  }
+
+  if (!btn.dataset.wired) {
+    btn.addEventListener('click', async () => {
+      const text = input.value.trim();
+      if (!text) return;
+      btn.disabled = true;
+      try {
+        const { error } = await dbClient.from('feature_requests').insert([withUid({
+          user_email:   (currentUser && currentUser.email) || null,
+          request_text: text,
+          status:       'new'
+        })]);
+        if (error) throw error;
+        input.value = '';
+        if (window.dtFun) window.dtFun.toast('Request registered — thanks!', { emoji: '✅', duration: 3000 });
+        renderMine();
+      } catch (e) {
+        console.error('Feature request submit failed', e);
+        if (window.dtFun) window.dtFun.toast('Could not submit request', { emoji: '⚠️', duration: 3000 });
+      }
+      btn.disabled = false;
+    });
+    btn.dataset.wired = 'true';
+  }
+
+  renderMine();
+}
+
+// Admin-only: review every request, change status, delete
+async function loadFeatureRequestsAdmin() {
+  const section = $('featureRequestsAdminSection');
+  const list    = $('featureRequestsAdminList');
+  const countEl = $('frAdminCount');
+  if (!section || !list) return;
+
+  if (!currentUser || currentUser.email !== FR_ADMIN_EMAIL) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  async function setStatus(id, status) {
+    try {
+      const { error } = await dbClient.from('feature_requests')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+      if (error) throw error;
+      render();
+    } catch (e) { console.error('setStatus failed', e); }
+  }
+
+  async function deleteRequest(id) {
+    try {
+      const { error } = await dbClient.from('feature_requests').delete().eq('id', id);
+      if (error) throw error;
+      render();
+    } catch (e) { console.error('deleteRequest failed', e); }
+  }
+
+  function adminBtn(label, colour, onClick) {
+    const b = document.createElement('button');
+    b.textContent = label;
+    b.style.cssText = `font-size:11px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:${colour};cursor:pointer;`;
+    b.addEventListener('click', onClick);
+    return b;
+  }
+
+  async function render() {
+    if (!dbReady) return;
+    try {
+      const { data } = await dbClient.from('feature_requests')
+        .select('*')
+        .order('created_at', { ascending: false });
+      list.innerHTML = '';
+      const rows = data || [];
+      const openCount = rows.filter(r => r.status === 'new' || r.status === 'planned').length;
+      if (countEl) countEl.textContent = String(openCount);
+
+      if (!rows.length) {
+        const empty = document.createElement('div');
+        empty.textContent = 'No feature requests yet.';
+        empty.style.cssText = 'font-size:12px;color:var(--text-dim);';
+        list.appendChild(empty);
+        return;
+      }
+
+      rows.forEach(r => {
+        const card = document.createElement('div');
+        card.style.cssText = 'padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;gap:6px;';
+        if (r.status === 'cancelled' || r.status === 'complete') card.style.opacity = '0.6';
+
+        const topRow = document.createElement('div');
+        topRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;';
+        const text = document.createElement('div');
+        text.textContent = r.request_text;
+        text.style.cssText = 'flex:1;font-size:13px;color:var(--text);line-height:1.4;white-space:pre-wrap;';
+        topRow.appendChild(text);
+        topRow.appendChild(frStatusBadge(r.status));
+        card.appendChild(topRow);
+
+        const meta = document.createElement('div');
+        const when = r.created_at ? new Date(r.created_at).toLocaleDateString() : '';
+        meta.textContent = `${r.user_email || 'unknown'}${when ? ' · ' + when : ''}`;
+        meta.style.cssText = 'font-size:10px;color:var(--text-dim);';
+        card.appendChild(meta);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
+        if (r.status !== 'planned')
+          actions.appendChild(adminBtn('Plan it', '#3b82f6', () => setStatus(r.id, 'planned')));
+        if (r.status !== 'complete')
+          actions.appendChild(adminBtn('Mark complete', '#22c55e', () => setStatus(r.id, 'complete')));
+        if (r.status !== 'cancelled')
+          actions.appendChild(adminBtn('Cancel', 'var(--text-dim)', () => setStatus(r.id, 'cancelled')));
+        actions.appendChild(adminBtn('Delete', 'var(--danger)', () => deleteRequest(r.id)));
+        card.appendChild(actions);
+
+        list.appendChild(card);
+      });
+    } catch (e) { console.error('Feature requests admin render failed', e); }
+  }
+
+  render();
 }
 
 async function setupAutolaunch() {
