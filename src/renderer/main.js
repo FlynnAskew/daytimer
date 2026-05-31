@@ -139,6 +139,8 @@ function updateSidebarLogo() {
   const local = currentUser.email.split('@')[0] || '';
   const namePart = local.split(/[\.\-_]/)[0] || local;
   if (namePart) logo.textContent = namePart.charAt(0).toUpperCase();
+  // Decide whether to show the Manager sidebar nav button.
+  refreshManagerNavVisibility();
 }
 
 // Receive user info from main process
@@ -316,6 +318,7 @@ function navigateTo(pageName) {
   if (pageName === 'todos')    loadTodos();
   if (pageName === 'insights') loadInsights();
   if (pageName === 'stats')    loadStats();
+  if (pageName === 'manager')  loadManager();
   if (pageName === 'settings') loadSettings();
 }
 
@@ -2956,6 +2959,361 @@ async function deleteTeam(team) {
     console.error('Delete team failed', e);
     if (window.dtFun) window.dtFun.toast('Could not delete team', { emoji: '⚠️', duration: 3000 });
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  MANAGER DASHBOARD
+// ═══════════════════════════════════════════════════════════
+// Visible to anyone who manages at least one team (or to the admin).
+// Shows per-team stats: time-by-category per member, plan-vs-actual %,
+// average log-in / log-out, total tracked.
+
+const managerState = {
+  range:        'week',           // day | week | month | year | custom
+  customFrom:   null,
+  customTo:     null,
+  teams:        [],               // teams I can see (manage or admin)
+  selectedTeam: null,             // currently-viewed team id
+  members:      [],               // [{ id, email }] for selectedTeam
+  selectedMember: null            // member id selected in the category-bars dropdown
+};
+
+async function refreshManagerNavVisibility() {
+  const navBtn = document.getElementById('navManager');
+  if (!navBtn || !currentUser || !dbReady) return;
+  const isAdmin = currentUser.email === TEAMS_ADMIN_EMAIL;
+  let show = isAdmin;
+  if (!show) {
+    try {
+      const { count } = await dbClient.from('team_managers')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', currentUserId);
+      show = (count || 0) > 0;
+    } catch (e) { /* table may not exist yet pre-migration — keep hidden */ }
+  }
+  navBtn.style.display = show ? '' : 'none';
+}
+
+function managerGetRangeDates() {
+  const now = new Date();
+  let from, to;
+  switch (managerState.range) {
+    case 'day':
+      from = new Date(now); to = new Date(now); break;
+    case 'week':
+      from = addDays(now, -6); to = new Date(now); break;
+    case 'month':
+      from = new Date(now.getFullYear(), now.getMonth(), 1); to = new Date(now); break;
+    case 'year':
+      from = new Date(now.getFullYear(), 0, 1); to = new Date(now); break;
+    case 'custom':
+      from = managerState.customFrom ? stringToDate(managerState.customFrom) : addDays(now, -6);
+      to   = managerState.customTo   ? stringToDate(managerState.customTo)   : new Date(now);
+      break;
+  }
+  return [from, to];
+}
+
+function managerRangeLabel() {
+  const [from, to] = managerGetRangeDates();
+  const nDays = Math.round((to - from) / 86400000) + 1;
+  return `${dateToString(from)} → ${dateToString(to)} · ${nDays} day${nDays !== 1 ? 's' : ''}`;
+}
+
+// Format a Date or 'HH:MM:SS' into a friendly time string
+function formatTimeOfDay(d) {
+  if (!d) return '—';
+  const date = (d instanceof Date) ? d : new Date(d);
+  if (isNaN(date.getTime())) return '—';
+  return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+// Given an array of Date objects, return the average wall-clock time of day
+// (HH:MM) — e.g. for averaging log-in or log-out times across the range.
+function averageTimeOfDay(dates) {
+  if (!dates || dates.length === 0) return null;
+  let totalMins = 0;
+  dates.forEach(d => { totalMins += d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60; });
+  const avg = Math.round(totalMins / dates.length);
+  return pad(Math.floor(avg / 60)) + ':' + pad(avg % 60);
+}
+
+async function loadManager() {
+  $('managerSubtitle').textContent = managerRangeLabel();
+
+  if (!dbReady) return;
+
+  // Pull the list of teams the current user can see (admin = all,
+  // otherwise just teams they manage — handled by RLS).
+  try {
+    const teamsRes = await dbClient.from('teams').select('*').order('name', { ascending: true });
+    if (teamsRes.error) throw teamsRes.error;
+    managerState.teams = teamsRes.data || [];
+  } catch (e) {
+    console.error('Manager: failed to load teams', e);
+    managerState.teams = [];
+  }
+
+  // Filter to teams I'm actually a manager of (admin keeps all).
+  const isAdmin = currentUser && currentUser.email === TEAMS_ADMIN_EMAIL;
+  if (!isAdmin) {
+    try {
+      const mineRes = await dbClient.from('team_managers')
+        .select('team_id').eq('user_id', currentUserId);
+      const ids = new Set((mineRes.data || []).map(r => r.team_id));
+      managerState.teams = managerState.teams.filter(t => ids.has(t.id));
+    } catch (e) { /* keep what we have */ }
+  }
+
+  const teamSel = $('managerTeamSelect');
+  if (managerState.teams.length === 0) {
+    teamSel.innerHTML = '<option value="">— No teams assigned yet —</option>';
+    $('managerMemberSelect').innerHTML = '<option value="">— Pick a team first —</option>';
+    return;
+  }
+  teamSel.innerHTML = managerState.teams.map(t =>
+    `<option value="${t.id}" ${t.id === managerState.selectedTeam ? 'selected' : ''}>${escapeHtml(t.name)}</option>`
+  ).join('');
+
+  if (!managerState.selectedTeam || !managerState.teams.find(t => t.id === managerState.selectedTeam)) {
+    managerState.selectedTeam = managerState.teams[0].id;
+    teamSel.value = managerState.selectedTeam;
+  }
+
+  await loadManagerTeam(managerState.selectedTeam);
+}
+
+async function loadManagerTeam(teamId) {
+  // Pull this team's members + their emails
+  try {
+    const [mbrsRes, profsRes] = await Promise.all([
+      dbClient.from('team_members').select('user_id').eq('team_id', teamId),
+      dbClient.from('profiles').select('id,email')
+    ]);
+    const memberIds = (mbrsRes.data || []).map(r => r.user_id);
+    const profById = {};
+    (profsRes.data || []).forEach(p => { profById[p.id] = p.email; });
+    managerState.members = memberIds.map(id => ({ id, email: profById[id] || '(unknown)' }))
+                                    .sort((a, b) => a.email.localeCompare(b.email));
+  } catch (e) {
+    console.error('Manager: failed to load team members', e);
+    managerState.members = [];
+  }
+
+  // Populate the member dropdown
+  const memSel = $('managerMemberSelect');
+  if (managerState.members.length === 0) {
+    memSel.innerHTML = '<option value="">— No members in this team —</option>';
+  } else {
+    memSel.innerHTML = '<option value="__all__">All members combined</option>' +
+      managerState.members.map(m =>
+        `<option value="${m.id}" ${m.id === managerState.selectedMember ? 'selected' : ''}>${escapeHtml(m.email)}</option>`
+      ).join('');
+    if (!managerState.selectedMember || !managerState.members.find(m => m.id === managerState.selectedMember)) {
+      managerState.selectedMember = '__all__';
+      memSel.value = '__all__';
+    }
+  }
+
+  await renderManagerStats();
+}
+
+async function renderManagerStats() {
+  const [from, to] = managerGetRangeDates();
+  const fromStr = dateToString(from);
+  const toStr   = dateToString(to);
+  const memberIds = managerState.members.map(m => m.id);
+
+  if (memberIds.length === 0) {
+    // Nothing to show
+    $('mgrAvgLogIn').textContent  = '—';
+    $('mgrAvgLogOut').textContent = '—';
+    $('mgrPlanMatch').textContent = '—';
+    $('mgrTotalHours').textContent= '—';
+    $('mgrCatBars').innerHTML     = '<div class="empty-state"><div>This team has no members yet.</div></div>';
+    $('mgrMemberSummary').innerHTML = '<div class="empty-state"><div>This team has no members yet.</div></div>';
+    return;
+  }
+
+  // Pull time_entries + day_plans for all members in range
+  let entries = [];
+  let plans   = [];
+  try {
+    const [eRes, pRes] = await Promise.all([
+      dbClient.from('time_entries')
+        .select('user_id,date,started_at,ended_at,duration_secs,category,entry_type,task_name')
+        .in('user_id', memberIds)
+        .gte('date', fromStr).lte('date', toStr)
+        .order('started_at', { ascending: true }),
+      dbClient.from('day_plans')
+        .select('user_id,date,planned_start,planned_end,category,task_name')
+        .in('user_id', memberIds)
+        .gte('date', fromStr).lte('date', toStr)
+    ]);
+    if (eRes.error) throw eRes.error;
+    if (pRes.error) throw pRes.error;
+    entries = eRes.data || [];
+    plans   = pRes.data || [];
+  } catch (e) {
+    console.error('Manager: failed to load team data', e);
+    $('mgrCatBars').innerHTML = `<div class="empty-state"><div style="color:var(--danger);">⚠ Could not load team data: ${escapeHtml(e.message || 'unknown')}</div></div>`;
+    return;
+  }
+
+  const taskEntries = entries.filter(e => !e.entry_type || e.entry_type === 'task');
+
+  // ── Headline stats (always TEAM-wide) ──
+  // Avg log-in: earliest task started_at per (member,date) → average wall clock
+  // Avg log-out: latest task ended_at per (member,date) → average wall clock
+  const firstByDay = new Map();   // key = uid|date → earliest Date
+  const lastByDay  = new Map();   // key = uid|date → latest  Date
+  taskEntries.forEach(e => {
+    const k = e.user_id + '|' + e.date;
+    const start = new Date(e.started_at);
+    const end   = new Date(e.ended_at);
+    const prevFirst = firstByDay.get(k);
+    if (!prevFirst || start < prevFirst) firstByDay.set(k, start);
+    const prevLast  = lastByDay.get(k);
+    if (!prevLast  || end   > prevLast)  lastByDay.set(k, end);
+  });
+  $('mgrAvgLogIn').textContent  = averageTimeOfDay(Array.from(firstByDay.values())) || '—';
+  $('mgrAvgLogOut').textContent = averageTimeOfDay(Array.from(lastByDay.values()))  || '—';
+
+  // Plan vs Actual % — averaged per (member,date) then over all
+  const dayKeys = new Set([...firstByDay.keys()]);
+  // Also include days that had plans but no actuals
+  plans.forEach(p => dayKeys.add(p.user_id + '|' + p.date));
+  const matchScores = [];
+  dayKeys.forEach(k => {
+    const [uid, date] = k.split('|');
+    const dayPlans   = plans.filter(p => p.user_id === uid && p.date === date);
+    const dayActuals = taskEntries.filter(e => e.user_id === uid && e.date === date);
+    const match = calculatePlanMatch(dayPlans, dayActuals);
+    if (match !== null) matchScores.push(match);
+  });
+  $('mgrPlanMatch').textContent = matchScores.length > 0
+    ? Math.round(matchScores.reduce((s, x) => s + x, 0) / matchScores.length) + '%'
+    : '—';
+
+  const totalSecs = taskEntries.reduce((s, e) => s + e.duration_secs, 0);
+  $('mgrTotalHours').textContent = formatHoursMins(totalSecs) || '0m';
+
+  // ── Time by Category (selected member OR all) ──
+  const filterMember = managerState.selectedMember;
+  const catSourceEntries = (filterMember && filterMember !== '__all__')
+    ? taskEntries.filter(e => e.user_id === filterMember)
+    : taskEntries;
+
+  const catTitle = $('mgrCatTitle');
+  const memberLabel = filterMember && filterMember !== '__all__'
+    ? (managerState.members.find(m => m.id === filterMember)?.email || 'member')
+    : 'all members combined';
+  catTitle.textContent = `Time by Category — ${memberLabel}`;
+
+  const byCat = {};
+  catSourceEntries.forEach(e => {
+    const c = e.category || 'Uncategorised';
+    byCat[c] = (byCat[c] || 0) + e.duration_secs;
+  });
+  const sortedCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]);
+  const maxCatVal = sortedCats[0] ? sortedCats[0][1] : 1;
+  if (sortedCats.length === 0) {
+    $('mgrCatBars').innerHTML = '<div class="empty-state"><div>No tracked time in this range.</div></div>';
+  } else {
+    $('mgrCatBars').innerHTML = sortedCats.map(([cat, secs]) => {
+      const cc = categoryColour(cat);
+      return `
+        <div class="cat-bar-row">
+          <div>${escapeHtml(cat)}</div>
+          <div class="cat-bar-track"><div class="cat-bar-fill" style="width:${(secs/maxCatVal)*100}%;background:${cc};"></div></div>
+          <div class="cat-bar-value">${formatHoursMins(secs)}</div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  // ── Per-member summary table ──
+  const perMember = managerState.members.map(m => {
+    const mineEntries = taskEntries.filter(e => e.user_id === m.id);
+    const total = mineEntries.reduce((s, e) => s + e.duration_secs, 0);
+    const daysActive = new Set(mineEntries.map(e => e.date)).size;
+    const myFirsts = Array.from(firstByDay.entries())
+      .filter(([k]) => k.startsWith(m.id + '|'))
+      .map(([, v]) => v);
+    const myLasts = Array.from(lastByDay.entries())
+      .filter(([k]) => k.startsWith(m.id + '|'))
+      .map(([, v]) => v);
+    return {
+      id: m.id,
+      email: m.email,
+      total,
+      daysActive,
+      avgIn:  averageTimeOfDay(myFirsts) || '—',
+      avgOut: averageTimeOfDay(myLasts)  || '—'
+    };
+  }).sort((a, b) => b.total - a.total);
+
+  $('mgrMemberSummary').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px 14px;font-size:11px;color:var(--text-dim);font-weight:600;padding:4px 0;border-bottom:1px solid var(--border);">
+      <div>Member</div><div style="text-align:right;">Total</div><div style="text-align:right;">Days</div><div style="text-align:right;">Avg in</div><div style="text-align:right;">Avg out</div>
+    </div>
+    ${perMember.map(r => `
+      <div style="display:grid;grid-template-columns:1fr auto auto auto auto;gap:8px 14px;font-size:12px;padding:6px 0;border-bottom:1px solid var(--border);align-items:center;">
+        <div style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(r.email)}</div>
+        <div style="text-align:right;font-family:'DM Mono',monospace;">${formatHoursMins(r.total) || '0m'}</div>
+        <div style="text-align:right;color:var(--text-dim);">${r.daysActive}</div>
+        <div style="text-align:right;font-family:'DM Mono',monospace;color:var(--text-dim);">${r.avgIn}</div>
+        <div style="text-align:right;font-family:'DM Mono',monospace;color:var(--text-dim);">${r.avgOut}</div>
+      </div>
+    `).join('')}
+  `;
+}
+
+// ── Manager page wiring ──────────────────────────────────────
+document.querySelectorAll('#managerRangeTabs .range-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('#managerRangeTabs .range-tab').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+    managerState.range = tab.dataset.range;
+    const showCustom = tab.dataset.range === 'custom';
+    $('managerCustomRange').classList.toggle('visible', showCustom);
+    if (!showCustom) loadManager();
+    else {
+      if (!managerState.customFrom) managerState.customFrom = dateToString(addDays(new Date(), -6));
+      if (!managerState.customTo)   managerState.customTo   = dateToString(new Date());
+      $('managerCustomFrom').value = managerState.customFrom;
+      $('managerCustomTo').value   = managerState.customTo;
+      loadManager();
+    }
+  });
+});
+
+const _mgrCustomApply = document.getElementById('managerCustomApply');
+if (_mgrCustomApply) {
+  _mgrCustomApply.addEventListener('click', () => {
+    managerState.customFrom = $('managerCustomFrom').value;
+    managerState.customTo   = $('managerCustomTo').value;
+    loadManager();
+  });
+}
+
+const _mgrTeamSel = document.getElementById('managerTeamSelect');
+if (_mgrTeamSel) {
+  _mgrTeamSel.addEventListener('change', async (e) => {
+    managerState.selectedTeam = e.target.value || null;
+    managerState.selectedMember = '__all__';
+    if (managerState.selectedTeam) {
+      await loadManagerTeam(managerState.selectedTeam);
+    }
+  });
+}
+
+const _mgrMemberSel = document.getElementById('managerMemberSelect');
+if (_mgrMemberSel) {
+  _mgrMemberSel.addEventListener('change', (e) => {
+    managerState.selectedMember = e.target.value || '__all__';
+    renderManagerStats();
+  });
 }
 
 async function setupAutolaunch() {
