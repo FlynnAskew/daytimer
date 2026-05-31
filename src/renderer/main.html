@@ -306,9 +306,12 @@
           </div>
 
           <div class="chart-card">
-            <div class="chart-title">Daily Hours</div>
-            <div class="bar-chart" id="chartDailyHours">
-              <div class="empty-state"><div>No data yet</div></div>
+            <div class="chart-title" style="display:flex;justify-content:space-between;align-items:center;">
+              <span>High Payoff Time</span>
+              <span id="highPayoffTotal" style="font-size:11px;font-weight:500;color:var(--text-dim);font-family:'DM Mono',monospace;">—</span>
+            </div>
+            <div class="bar-chart" id="chartHighPayoff">
+              <div class="empty-state"><div>Tick "High payoff" on a category in Settings to start tracking it here.</div></div>
             </div>
           </div>
 
@@ -320,8 +323,8 @@
           </div>
 
           <div class="chart-card">
-            <div class="chart-title">Week-on-Week Trend</div>
-            <div class="bar-chart" id="chartWeekTrend">
+            <div class="chart-title">Daily Hours</div>
+            <div class="bar-chart" id="chartDailyHours">
               <div class="empty-state"><div>No data yet</div></div>
             </div>
           </div>

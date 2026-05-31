@@ -2,6 +2,31 @@
 
 All notable changes to DayTimer.
 
+## [5.5.6] — 2026-05-20
+
+### Added
+- **High Payoff time tracking** — tick "💎 High payoff" on a category in Settings and a new chart on Insights shows your high-payoff hours per day, plus a total and per-active-day average
+- Consolidated "What's New" tour covering the pause rework, priority flags, scheduling and high-payoff features
+
+### Changed
+- Insights layout: Week-on-Week Trend removed (rarely useful); Daily Hours moved into its slot; High Payoff promoted to top-right
+
+### Fixed
+- Daily Hours bar chart now actually renders the bars (CSS height was resolving to nothing)
+- Removing a planned task that came from a To-Do now clears the "Scheduled" outline on that To-Do
+
+## [5.5.5] — 2026-05-20
+
+### Added
+- Pause rework — paused time no longer bleeds into the next task; shown as a greyed "Paused" placeholder in Tracker; doesn't count in day totals; timer counts up while paused
+- High-priority flag on To-Dos (auto-sorts to top) and Day Planner blocks
+- "Scheduled" outline on To-Dos that have been added to the Day Planner
+- Date picker on the Add Planned Task dialog — schedule any future day in one step
+- Feature Request status chip: click to toggle New ↔ Planned
+
+### Fixed
+- Pause → End Day now saves the last task instead of losing it
+
 ## [5.5.4] — 2026-05-20
 
 ### Changed

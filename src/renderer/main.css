@@ -930,7 +930,7 @@ html, body {
 .bar-chart {
   display: flex;
   gap: 14px;
-  align-items: flex-end;
+  align-items: stretch;       /* let columns fill height so % heights work */
   height: 200px;
   padding: 10px 0;
 }
@@ -940,7 +940,10 @@ html, body {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: flex-end;  /* bar fills from bottom up */
   gap: 6px;
+  height: 100%;               /* needed so bar-fill % resolves */
+  min-width: 0;
 }
 
 .bar-fill {
@@ -950,6 +953,7 @@ html, body {
   min-height: 2px;
   transition: height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+  flex-shrink: 0;
 }
 
 .bar-value {
@@ -1107,7 +1111,8 @@ html, body {
 
 .cat-row {
   display: grid;
-  grid-template-columns: 14px 1fr auto;
+  /* dot | name | high-payoff toggle | delete */
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
   background: var(--surface2);

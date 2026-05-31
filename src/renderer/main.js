@@ -1569,11 +1569,12 @@ async function openAddPlanItem(startTime, explicitEndTime, opts = {}) {
         category,
         planned_start: start,
         planned_end: end,
-        is_high_priority: isPriority
+        is_high_priority: isPriority,
+        source_todo_id: sourceTodoId
       })]);
 
       // If this plan came from a To-Do, stamp the scheduled date on the
-      // To-Do so the "Scheduled" badge appears in the in-app to-do list.
+      // To-Do so the "Scheduled" outline appears in the in-app to-do list.
       if (sourceTodoId) {
         try {
           await dbClient.from('todos')
@@ -1718,9 +1719,25 @@ function openEditPlanItem(item) {
   });
 
   $('deletePlanBtn').addEventListener('click', async () => {
-    if (dbReady) await dbClient.from('day_plans').delete().eq('id', item.id);
+    if (dbReady) {
+      // If this plan was created from a To-Do, clear the scheduled_date on
+      // that To-Do so the blue "Scheduled" outline disappears with the plan.
+      if (item.source_todo_id) {
+        try {
+          await dbClient.from('todos')
+            .update({ scheduled_date: null })
+            .eq('id', item.source_todo_id);
+        } catch (e) { console.error('Failed to clear scheduled_date', e); }
+      }
+      await dbClient.from('day_plans').delete().eq('id', item.id);
+    }
     closeModal();
     loadPlanner();
+    // Refresh the to-do list too so the badge state updates immediately
+    // if the user is currently on the To-Dos page or visits it next.
+    if (item.source_todo_id && typeof loadLocalTodos === 'function') {
+      loadLocalTodos();
+    }
   });
 }
 
@@ -1971,8 +1988,8 @@ function renderInsightCharts(entries, from, to) {
   // ── Heatmap (time of day × day of week) ──
   renderHeatmap(entries);
 
-  // ── Week-on-week trend ──
-  renderWeekTrend(entries);
+  // ── High Payoff per day (replaces the old Week-on-Week chart) ──
+  renderHighPayoff(entries, from, to);
 
   // ── Summary ──
   const totalSecs = entries.reduce((s, e) => s + e.duration_secs, 0);
@@ -2041,6 +2058,87 @@ function renderHeatmap(entries) {
 
   html += '</div>';
   $('chartHeatmap').innerHTML = html;
+}
+
+// High Payoff per day — bar chart filtered to categories with is_high_payoff,
+// plus a total/avg headline. Lives in the slot the old Week-on-Week chart was in.
+function renderHighPayoff(entries, from, to) {
+  const container = $('chartHighPayoff');
+  const totalEl   = $('highPayoffTotal');
+  if (!container) return;
+
+  const highPayoffCats = new Set(
+    (state.categories || []).filter(c => c.is_high_payoff).map(c => c.name)
+  );
+
+  if (highPayoffCats.size === 0) {
+    container.innerHTML = '<div class="empty-state"><div>Tick "💎 High payoff" on a category in <strong>Settings → Categories</strong> to start tracking it here.</div></div>';
+    if (totalEl) totalEl.textContent = '—';
+    return;
+  }
+
+  // Sum high-payoff seconds per day
+  const byDate = {};
+  entries.forEach(e => {
+    if (highPayoffCats.has(e.category)) {
+      byDate[e.date] = (byDate[e.date] || 0) + e.duration_secs;
+    }
+  });
+
+  // Walk the range so empty days still get a column
+  const dates = [];
+  const cursor = new Date(from);
+  while (cursor <= to) {
+    dates.push(dateToString(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  // Same week-rollup rule as Daily Hours for ranges > 31 days
+  let chartData;
+  if (dates.length > 31) {
+    const byWeek = {};
+    dates.forEach(d => {
+      const dt = stringToDate(d);
+      const weekStart = addDays(dt, -dt.getDay());
+      const wk = dateToString(weekStart);
+      byWeek[wk] = (byWeek[wk] || 0) + (byDate[d] || 0);
+    });
+    chartData = Object.entries(byWeek).map(([k, v]) => ({ label: 'W ' + k.substring(5), secs: v }));
+  } else {
+    chartData = dates.map(d => ({
+      label: stringToDate(d).toLocaleDateString('en-GB', { weekday: 'short' }).substring(0, 3) +
+             ' ' + d.substring(8),
+      secs: byDate[d] || 0
+    }));
+  }
+
+  // Headline numbers
+  const totalSecs = chartData.reduce((s, x) => s + x.secs, 0);
+  const daysWithAny = chartData.filter(x => x.secs > 0).length;
+  const avgSecs = daysWithAny > 0 ? Math.round(totalSecs / daysWithAny) : 0;
+  if (totalEl) {
+    totalEl.textContent = totalSecs > 0
+      ? `${formatHoursMins(totalSecs)} total · ${formatHoursMins(avgSecs)} / active day`
+      : '0m total';
+  }
+
+  if (totalSecs === 0) {
+    container.innerHTML = '<div class="empty-state"><div>No high-payoff time logged in this range yet.</div></div>';
+    return;
+  }
+
+  const chartMax = Math.max(1, ...chartData.map(x => x.secs));
+  container.innerHTML = chartData.map(d => {
+    const heightPct = (d.secs / chartMax) * 100;
+    return `
+      <div class="bar-column">
+        <div class="bar-fill" style="height:${heightPct}%;background:#10b981;">
+          ${d.secs > 0 ? `<div class="bar-value">${formatHoursMins(d.secs)}</div>` : ''}
+        </div>
+        <div class="bar-label">${d.label}</div>
+      </div>
+    `;
+  }).join('');
 }
 
 function renderWeekTrend(entries) {
@@ -2857,11 +2955,37 @@ function renderCategoryList() {
     <div class="cat-row" data-id="${c.id}">
       <div class="cat-dot" style="background:${c.colour}" data-action="colour" data-id="${c.id}"></div>
       <input type="text" class="cat-name-input" value="${escapeHtml(c.name)}" data-action="rename" data-id="${c.id}">
+      <label class="cat-payoff" title="High payoff — this category's time aggregates into the High Payoff chart on Insights" style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-dim);cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" data-action="toggle-payoff" data-id="${c.id}" ${c.is_high_payoff ? 'checked' : ''}>
+        <span>💎 High payoff</span>
+      </label>
       <div class="cat-actions">
         <button class="mini-btn danger" data-action="delete-cat" data-id="${c.id}" title="Delete">✕</button>
       </div>
     </div>
   `).join('');
+
+  // High-payoff toggle
+  $('categoryList').querySelectorAll('[data-action="toggle-payoff"]').forEach(cb => {
+    cb.addEventListener('change', async () => {
+      const id = cb.dataset.id;
+      const cat = state.categories.find(c => c.id === id);
+      if (!cat) return;
+      cat.is_high_payoff = cb.checked;
+      if (dbReady) {
+        try {
+          await dbClient.from('categories')
+            .update({ is_high_payoff: cb.checked })
+            .eq('id', id);
+        } catch (e) {
+          console.error('Failed to toggle high payoff', e);
+          // Revert UI on failure
+          cb.checked = !cb.checked;
+          cat.is_high_payoff = cb.checked;
+        }
+      }
+    });
+  });
 
   // Colour picker
   $('categoryList').querySelectorAll('[data-action="colour"]').forEach(dot => {
@@ -4442,6 +4566,35 @@ const WHATS_NEW = {
     {
       title: "Polish & fixes",
       body: "Plenty of smaller fixes: the minimised widget no longer blocks clicks on whatever's behind it, the widget's neon glow renders cleanly, quick-action buttons always show, and the streak badge hides instantly when you turn it off."
+    }
+  ],
+  // 5.5.6 — first build the wider team receives after 5.5.4. Covers the
+  // 5.5.5 + 5.5.6 changes (pause rework, priority/scheduled flags, High
+  // Payoff tracking, etc) in one consolidated tour.
+  '5.5.6': [
+    {
+      title: "What's new in DayTimer 🎉",
+      body: "A few useful additions since you last opened DayTimer. Use <strong>Next</strong> to step through."
+    },
+    {
+      title: "Smarter pause",
+      body: "Paused time no longer bleeds into the next task. Hit <strong>Pause</strong> and your current task is logged then; the pause shows as a greyed-out 'Paused' row in the Tracker and doesn't count towards your day total. The timer also keeps counting while paused so you can see how long you've been on a break."
+    },
+    {
+      title: "Priorities & scheduling",
+      body: "To-Dos now have a 🚩 <strong>high-priority</strong> flag — flagged items rise to the top of the list. The same flag works on Day Planner blocks. Adding a To-Do to the plan tags it with a subtle blue outline so you know it's scheduled."
+    },
+    {
+      title: "Plan future days in one click",
+      body: "The <strong>Add planned task</strong> dialog now has a date picker — defaults to today, click to pick any day. No more navigating to a future date first."
+    },
+    {
+      title: "Track your high-payoff time 💎",
+      body: "Tick <strong>'💎 High payoff'</strong> on any category in <strong>Settings → Categories</strong>. A new chart on the Insights page tracks how many hours you're spending on the work that actually moves the needle — daily total + per-active-day average."
+    },
+    {
+      title: "Got an idea? Tell us 💡",
+      body: "There's a <strong>Feature Requests</strong> box in Settings. Type your idea, hit <strong>Register request</strong>, and it goes straight to the team. You'll see the status of your requests right there."
     }
   ],
   // 5.5.4 is the first build the wider team receives (everyone else jumps
