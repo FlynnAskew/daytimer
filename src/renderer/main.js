@@ -473,32 +473,45 @@ function renderTrackerRows(entries) {
   }
 
   rows.innerHTML = entries.map(e => {
-    const isBreak = e.entry_type === 'break';
-    const isTouched = !isBreak && (e.is_manual || e.edited_at);
+    const isPaused = e.entry_type === 'paused';
+    const isBreak  = e.entry_type === 'break'; // legacy entries pre-v5.5.5
+    const isPlaceholder = isPaused || isBreak;
+    const isTouched = !isPlaceholder && (e.is_manual || e.edited_at);
     const touchedTitle = e.is_manual ? 'Added manually' : 'Edited';
     const touchedMark = isTouched
       ? `<span class="touched-mark" title="${touchedTitle}">✎</span>`
       : '';
-    const catCell = isBreak
-      ? `<span style="color:#fbbf24;font-size:11px;font-weight:500;">☕ Break</span>`
-      : (e.category
-          ? `<span class="cat-chip" style="background:${colourToSoft(categoryColour(e.category))};color:${categoryColour(e.category)}">${escapeHtml(e.category)}</span>`
-          : '<span style="color:var(--text-dim);font-size:11px;">—</span>');
-    const taskCell = isBreak
-      ? `<span style="color:var(--text-dim);font-style:italic;">${escapeHtml(e.task_name)}</span>`
-      : `${touchedMark}${escapeHtml(e.task_name)}`;
+    let catCell, taskCell;
+    if (isPaused) {
+      catCell  = `<span style="color:var(--text-dim);font-size:11px;font-weight:500;">⏸ Paused</span>`;
+      taskCell = `<span style="color:var(--text-dim);font-style:italic;">Paused — not counted</span>`;
+    } else if (isBreak) {
+      catCell  = `<span style="color:#fbbf24;font-size:11px;font-weight:500;">☕ Break</span>`;
+      taskCell = `<span style="color:var(--text-dim);font-style:italic;">${escapeHtml(e.task_name)}</span>`;
+    } else {
+      catCell = e.category
+        ? `<span class="cat-chip" style="background:${colourToSoft(categoryColour(e.category))};color:${categoryColour(e.category)}">${escapeHtml(e.category)}</span>`
+        : '<span style="color:var(--text-dim);font-size:11px;">—</span>';
+      taskCell = `${touchedMark}${escapeHtml(e.task_name)}`;
+    }
     const rowClass = `table-row${isTouched ? ' touched-row' : ''}`;
+    const rowStyle = isPlaceholder ? 'style="opacity:0.55;"' : '';
+    // Paused placeholders aren't editable — they're just a visual record of
+    // unaccounted time, not a task entry.
+    const actionsCell = isPaused
+      ? `<div class="row-actions"><button class="mini-btn danger" data-action="delete" data-id="${e.id}" title="Delete">✕</button></div>`
+      : `<div class="row-actions">
+           <button class="mini-btn" data-action="edit" data-id="${e.id}" title="Edit">✎</button>
+           <button class="mini-btn danger" data-action="delete" data-id="${e.id}" title="Delete">✕</button>
+         </div>`;
     return `
-    <div class="${rowClass}" data-id="${e.id}" ${isBreak ? 'style="opacity:0.7;"' : ''}>
+    <div class="${rowClass}" data-id="${e.id}" ${rowStyle}>
       <div class="time-col">${formatTime(e.started_at)}</div>
       <div class="time-col">${formatTime(e.ended_at)}</div>
       <div class="task-col" title="${escapeHtml(e.task_name)}">${taskCell}</div>
       <div>${catCell}</div>
       <div class="duration-col">${formatDuration(e.duration_secs)}</div>
-      <div class="row-actions">
-        <button class="mini-btn" data-action="edit" data-id="${e.id}" title="Edit">✎</button>
-        <button class="mini-btn danger" data-action="delete" data-id="${e.id}" title="Delete">✕</button>
-      </div>
+      ${actionsCell}
     </div>
     `;
   }).join('');
@@ -1134,6 +1147,13 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
     else block.classList.add('mismatch');
   }
 
+  // High-priority planned tasks get a red flag immediately to the left of
+  // the category badge. Only shown on plan blocks (not actual entries or
+  // calendar events).
+  const priorityFlag = (mode === 'plan' && item.is_high_priority)
+    ? `<span class="task-block-priority" title="High priority" style="flex-shrink:0;margin-left:4px;font-size:11px;color:#ef4444;">🚩</span>`
+    : '';
+
   if (item._isCalendarEvent) {
     block.innerHTML = `
       <div style="overflow:hidden;min-width:0;flex:1;">
@@ -1146,6 +1166,7 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
       <div style="overflow:hidden;min-width:0;flex:1;">
         <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(item.task_name)}</div>
       </div>
+      ${priorityFlag}
       <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Uncat.')}</div>
     `;
   }
@@ -1432,7 +1453,11 @@ document.addEventListener('mouseup', (e) => {
 // Track the most recent planned task end time so new plan items can default to it
 let lastPlanEndTime = null;
 
-async function openAddPlanItem(startTime, explicitEndTime) {
+async function openAddPlanItem(startTime, explicitEndTime, opts = {}) {
+  // opts.sourceTodoId — if set, this plan task came from a To-Do; we stamp
+  //                     todos.scheduled_date on save so the "Scheduled" badge appears.
+  const sourceTodoId = opts.sourceTodoId || null;
+
   // If no explicit start, try to use the last plan item's end as default
   if (!startTime || startTime === '00:00') {
     if (lastPlanEndTime) {
@@ -1458,11 +1483,18 @@ async function openAddPlanItem(startTime, explicitEndTime) {
   const catOptions = '<option value="">— None —</option>' +
     state.categories.map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`).join('');
 
+  // Default the date to whatever day the planner is currently showing.
+  const defaultDate = dateToString(state.plannerDate);
+
   openModal(`
     <div class="modal-title">Add planned task</div>
     <div style="display:flex;flex-direction:column;gap:10px;">
       <input type="text" class="field-input" id="planTask" placeholder="Task name" style="width:100%;" autofocus>
       <select class="field-input" id="planCategory" style="width:100%;">${catOptions}</select>
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Date</div>
+        <input type="date" class="field-input" id="planDate" value="${defaultDate}" style="width:100%;font-family:'DM Mono',monospace;">
+      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>
           <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Start (e.g. 9:30 or 0930)</div>
@@ -1482,6 +1514,10 @@ async function openAddPlanItem(startTime, explicitEndTime) {
         <button type="button" class="quick-dur-btn" data-mins="90">1h 30</button>
         <button type="button" class="quick-dur-btn" data-mins="120">2h</button>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);margin-top:2px;">
+        <input type="checkbox" id="planPriority">
+        <span>🚩 High priority</span>
+      </label>
     </div>
     <div class="modal-footer">
       <button class="modal-btn" onclick="closeModal()">Cancel</button>
@@ -1522,21 +1558,44 @@ async function openAddPlanItem(startTime, explicitEndTime) {
     const start = pad(Math.floor(startMins / 60)) + ':' + pad(startMins % 60);
     const end   = pad(Math.floor(endMins / 60))   + ':' + pad(endMins % 60);
 
+    // Picked date — fall back to today if blank/invalid.
+    const pickedDate = $('planDate').value || dateToString(state.plannerDate);
+    const isPriority = $('planPriority').checked;
+
     if (dbReady) {
       await dbClient.from('day_plans').insert([withUid({
-        date: dateToString(state.plannerDate),
+        date: pickedDate,
         task_name: task,
         category,
         planned_start: start,
-        planned_end: end
+        planned_end: end,
+        is_high_priority: isPriority
       })]);
+
+      // If this plan came from a To-Do, stamp the scheduled date on the
+      // To-Do so the "Scheduled" badge appears in the in-app to-do list.
+      if (sourceTodoId) {
+        try {
+          await dbClient.from('todos')
+            .update({ scheduled_date: pickedDate })
+            .eq('id', sourceTodoId);
+        } catch (e) { console.error('Failed to stamp scheduled_date on todo', e); }
+      }
     }
 
     // Remember this end time for the next "add plan" defaults
     lastPlanEndTime = end;
 
+    // If the picked date differs from the currently-viewed planner date,
+    // navigate to it so the user sees their new entry.
+    if (pickedDate !== dateToString(state.plannerDate)) {
+      state.plannerDate = stringToDate(pickedDate);
+    }
+
     closeModal();
     loadPlanner();
+    // Refresh the to-do list too so the "Scheduled" badge updates.
+    if (sourceTodoId) loadLocalTodos();
   };
 
   $('savePlanBtn').addEventListener('click', save);
@@ -1612,6 +1671,10 @@ function openEditPlanItem(item) {
         <button type="button" class="quick-dur-btn" data-mins="90">1h 30</button>
         <button type="button" class="quick-dur-btn" data-mins="120">2h</button>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);margin-top:2px;">
+        <input type="checkbox" id="planPriority" ${item.is_high_priority ? 'checked' : ''}>
+        <span>🚩 High priority</span>
+      </label>
     </div>
     <div class="modal-footer">
       <button class="modal-btn danger" id="deletePlanBtn">Delete</button>
@@ -1643,7 +1706,11 @@ function openEditPlanItem(item) {
 
     if (dbReady) {
       await dbClient.from('day_plans').update({
-        task_name: task, category, planned_start: start, planned_end: end
+        task_name: task,
+        category,
+        planned_start: start,
+        planned_end: end,
+        is_high_priority: $('planPriority').checked
       }).eq('id', item.id);
     }
     closeModal();
@@ -2398,11 +2465,20 @@ const FR_STATUS_STYLE = {
   cancelled: { label: 'Cancelled', bg: 'var(--surface2)', fg: 'var(--text-dim)' }
 };
 
-function frStatusBadge(status) {
+function frStatusBadge(status, onToggle) {
   const s = FR_STATUS_STYLE[status] || FR_STATUS_STYLE.new;
   const span = document.createElement('span');
   span.textContent = s.label;
   span.style.cssText = `font-size:10px;font-weight:600;border-radius:10px;padding:2px 8px;background:${s.bg};color:${s.fg};white-space:nowrap;`;
+  // Admin-only quick toggle: click the chip to flip between New ↔ Planned.
+  // Complete / Cancelled chips aren't toggleable here — use the action buttons.
+  if (onToggle && (status === 'new' || status === 'planned')) {
+    span.style.cursor = 'pointer';
+    span.title = status === 'new'
+      ? 'Click to mark as Planned'
+      : 'Click to revert to New';
+    span.addEventListener('click', () => onToggle(status === 'new' ? 'planned' : 'new'));
+  }
   return span;
 }
 
@@ -2535,7 +2611,7 @@ async function loadFeatureRequestsAdmin() {
         text.textContent = r.request_text;
         text.style.cssText = 'flex:1;font-size:13px;color:var(--text);line-height:1.4;white-space:pre-wrap;';
         topRow.appendChild(text);
-        topRow.appendChild(frStatusBadge(r.status));
+        topRow.appendChild(frStatusBadge(r.status, (newStatus) => setStatus(r.id, newStatus)));
         card.appendChild(topRow);
 
         const meta = document.createElement('div');
@@ -3731,9 +3807,11 @@ function msTodoTaskHtml(task, listId) {
 async function loadLocalTodos() {
   if (!dbReady) return;
   try {
+    // High-priority items rise to the top within each (open / done) group.
     const { data } = await dbClient.from('todos')
       .select('*')
       .order('is_done', { ascending: true })
+      .order('is_high_priority', { ascending: false })
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
     todoState.todos = data || [];
@@ -3760,13 +3838,19 @@ function renderLocalTodos() {
   $('todoList').innerHTML = list.map(t => {
     const catColour = t.category ? categoryColour(t.category) : 'var(--text-dim)';
     const catSoft = t.category ? colourToSoft(catColour) : 'transparent';
+    const priorityBtn = `<button class="mini-btn" data-action="toggle-priority" data-id="${t.id}" title="${t.is_high_priority ? 'Remove priority flag' : 'Mark as high priority'}" style="color:${t.is_high_priority ? '#ef4444' : 'var(--text-dim)'};font-size:13px;line-height:1;">${t.is_high_priority ? '🚩' : '⚐'}</button>`;
+    const scheduledBadge = t.scheduled_date
+      ? `<span class="todo-cat" style="background:rgba(59,130,246,0.12);color:#3b82f6;" title="Added to Day Plan for ${escapeHtml(t.scheduled_date)}">📅 Scheduled</span>`
+      : '';
     return `
-      <div class="todo-row ${t.is_done ? 'done' : ''}" data-id="${t.id}" draggable="true">
+      <div class="todo-row ${t.is_done ? 'done' : ''} ${t.is_high_priority ? 'high-priority' : ''}" data-id="${t.id}" draggable="true">
         <div class="todo-checkbox ${t.is_done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}">
           ${t.is_done ? '✓' : ''}
         </div>
         <div class="todo-name" data-action="edit" data-id="${t.id}">${escapeHtml(t.task_name)}</div>
+        ${scheduledBadge}
         ${t.category ? `<span class="todo-cat" style="background:${catSoft};color:${catColour};">${escapeHtml(t.category)}</span>` : ''}
+        ${priorityBtn}
         <button class="todo-add-to-plan" data-action="to-plan" data-id="${t.id}" title="Add to today's plan">→ Plan</button>
         <button class="mini-btn danger" data-action="delete" data-id="${t.id}" title="Delete">✕</button>
       </div>
@@ -3776,6 +3860,12 @@ function renderLocalTodos() {
   // Wire up actions
   $('todoList').querySelectorAll('[data-action="toggle"]').forEach(el => {
     el.addEventListener('click', () => toggleTodo(el.dataset.id));
+  });
+  $('todoList').querySelectorAll('[data-action="toggle-priority"]').forEach(el => {
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      togglePriority(el.dataset.id);
+    });
   });
   $('todoList').querySelectorAll('[data-action="edit"]').forEach(el => {
     el.addEventListener('click', () => editTodo(el.dataset.id));
@@ -3806,6 +3896,17 @@ async function deleteTodo(id) {
   loadLocalTodos();
 }
 
+async function togglePriority(id) {
+  const todo = todoState.todos.find(t => t.id === id);
+  if (!todo) return;
+  if (dbReady) {
+    await dbClient.from('todos')
+      .update({ is_high_priority: !todo.is_high_priority })
+      .eq('id', id);
+  }
+  loadLocalTodos();
+}
+
 function editTodo(id) {
   const todo = todoState.todos.find(t => t.id === id);
   if (!todo) return;
@@ -3819,6 +3920,10 @@ function editTodo(id) {
       <input type="text" class="field-input" id="editTodoName" value="${escapeHtml(todo.task_name)}" style="width:100%;">
       <select class="field-input" id="editTodoCat" style="width:100%;">${catOptions}</select>
       <textarea class="field-input" id="editTodoNotes" placeholder="Notes (optional)" rows="3" style="width:100%;resize:vertical;">${escapeHtml(todo.notes || '')}</textarea>
+      <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);">
+        <input type="checkbox" id="editTodoPriority" ${todo.is_high_priority ? 'checked' : ''}>
+        <span>🚩 High priority — sorts to top of the list</span>
+      </label>
     </div>
     <div class="modal-footer">
       <button class="modal-btn" onclick="closeModal()">Cancel</button>
@@ -3832,7 +3937,8 @@ function editTodo(id) {
       await dbClient.from('todos').update({
         task_name: name,
         category: $('editTodoCat').value || null,
-        notes: $('editTodoNotes').value.trim() || null
+        notes: $('editTodoNotes').value.trim() || null,
+        is_high_priority: $('editTodoPriority').checked
       }).eq('id', id);
     }
     closeModal();
@@ -3855,8 +3961,9 @@ async function addTodoToPlan(id) {
   const lastEnd = await getLastPlannedEndTime();
   if (lastEnd) startTime = lastEnd;
 
-  // Open the add modal pre-filled
-  await openAddPlanItem(startTime);
+  // Open the add modal pre-filled. Pass sourceTodoId so the save step
+  // stamps the scheduled_date back onto the to-do row.
+  await openAddPlanItem(startTime, undefined, { sourceTodoId: id });
 
   setTimeout(() => {
     if ($('planTask')) {
@@ -3865,6 +3972,10 @@ async function addTodoToPlan(id) {
         const catSel = $('planCategory');
         const opt = Array.from(catSel.options).find(o => o.value === todo.category);
         if (opt) catSel.value = todo.category;
+      }
+      // Carry the to-do's priority flag onto the planned task by default.
+      if (todo.is_high_priority && $('planPriority')) {
+        $('planPriority').checked = true;
       }
       // Focus start time so user can adjust quickly
       $('planStart').focus();

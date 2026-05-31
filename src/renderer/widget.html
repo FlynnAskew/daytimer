@@ -1170,7 +1170,12 @@ body {
     });
 
     // ── Pause / Resume ────────────────────────────────────────
-    pauseBtn.addEventListener('click', () => {
+    // v5.5.5 model: Pause FINALISES the current task immediately (start_time
+    // → pause start). Resume STARTS A NEW task entry from the resume moment.
+    // The pause interval is logged separately with entry_type='paused' so
+    // the Tracker can render it as a greyed-out "Paused" placeholder.
+    // Paused time is excluded from all task durations and day totals.
+    pauseBtn.addEventListener('click', async () => {
       if (!dayStarted) return;
       isPaused = !isPaused;
       pauseBtn.textContent = isPaused ? 'Resume' : 'Pause';
@@ -1181,41 +1186,50 @@ body {
       updateStatusDotColour();
 
       if (isPaused) {
+        // Log the currently-running task NOW (its time should end here, not
+        // bleed into the pause). Also fixes the "Pause → End Day loses the
+        // last slot" bug — the task is safely persisted before the pause.
+        if (taskInput.value.trim() && startTime) {
+          try { await logCurrentAsTask(); } catch (e) { console.error(e); }
+        }
         pauseBlockStartTime = new Date();
         pauseStartedAt = Date.now();
+        startTime = null;          // no active task during pause
+        seconds = 0;
+        timerDisplay.textContent = '00:00:00';
         setPausedMode();
       } else {
-        // Resumed — add the time we were paused to accumulator
-        if (pauseStartedAt) {
-          pausedAccumulated += Date.now() - pauseStartedAt;
-          pauseStartedAt = null;
-        }
-        // Resume — log the break if it lasted long enough
-        logBreak();
+        // Resume — log the paused interval (>=30s) so it appears as a
+        // placeholder in Actual view, then start a fresh task entry.
+        try { await logPaused(); } catch (e) { console.error(e); }
         pauseBlockStartTime = null;
+        pauseStartedAt = null;
+        pausedAccumulated = 0;
+        startTime = new Date();    // resumed task starts now
+        seconds = 0;
         setUnpausedMode();
       }
     });
 
-    async function logBreak() {
+    async function logPaused() {
       if (!pauseBlockStartTime) return;
-      const breakEnd = new Date();
-      const breakDuration = Math.round((breakEnd - pauseBlockStartTime) / 1000);
-      // Only log if at least 30 seconds
-      if (breakDuration < 30) return;
+      const endTime = new Date();
+      const duration = Math.round((endTime - pauseBlockStartTime) / 1000);
+      // Skip blink-and-you-miss-it pauses — keeps the log clean.
+      if (duration < 30) return;
 
       if (dbReady) {
         try {
           await dbClient.from('time_entries').insert([withUid({
-            task_name: 'Break',
+            task_name: 'Paused',
             category: null,
             started_at: pauseBlockStartTime.toISOString(),
-            ended_at: breakEnd.toISOString(),
-            duration_secs: breakDuration,
+            ended_at: endTime.toISOString(),
+            duration_secs: duration,
             date: todayStr(),
-            entry_type: 'break'
+            entry_type: 'paused'
           })]);
-        } catch (e) { console.error('Break log failed', e); }
+        } catch (e) { console.error('Paused log failed', e); }
       }
     }
 
@@ -1400,20 +1414,22 @@ body {
       const now = new Date();
       const pauseBlock = pauseBlockStartTime;
 
-      // If pause started <30s ago, don't log it as a break
+      // If pause started <30s ago, don't bother logging it.
+      // Note: the task itself was already logged when Pause was clicked,
+      // so Pause → End Day no longer loses the last activity.
       const pauseDuration = pauseBlock ? (now - pauseBlock) / 1000 : 0;
-      const shouldLogBreak = pauseBlock && pauseDuration >= 30;
+      const shouldLogPaused = pauseBlock && pauseDuration >= 30;
 
-      if (shouldLogBreak) {
+      if (shouldLogPaused) {
         try {
           await dbClient.from('time_entries').insert([withUid({
-            task_name: 'Break',
+            task_name: 'Paused',
             category: null,
             started_at: pauseBlock.toISOString(),
             ended_at: now.toISOString(),
             duration_secs: Math.round(pauseDuration),
             date: todayStr(),
-            entry_type: 'break'
+            entry_type: 'paused'
           })]);
         } catch (e) { console.error(e); }
       }
