@@ -2,6 +2,11 @@
 
 All notable changes to DayTimer.
 
+## [5.6.1] — 2026-05-20
+
+### Added
+- "What's new" tour for users updating to v5.6.1 — covers all the 5.5.x features (pause rework, priority/scheduled flags, future-date picker, high-payoff tracking, feature requests). Teams deliberately omitted from the tour.
+
 ## [5.6.0] — 2026-05-20
 
 ### Added

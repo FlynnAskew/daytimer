@@ -5175,9 +5175,41 @@ const WHATS_NEW = {
       body: "Plenty of smaller fixes: the minimised widget no longer blocks clicks on whatever's behind it, the widget's neon glow renders cleanly, quick-action buttons always show, and the streak badge hides instantly when you turn it off."
     }
   ],
+  // 5.6.1 — Teams shipped silently in 5.6.0 (gated to managers). This
+  // tour covers everything else added since 5.4.1 (pause rework, priority
+  // flags, scheduled outline, future-date picker, high-payoff tracking,
+  // feature requests) and deliberately leaves Teams out so non-manager
+  // staff don't ask about a tab they can't see.
+  '5.6.1': [
+    {
+      title: "What's new in DayTimer 🎉",
+      body: "A few useful additions since you last opened DayTimer. Use <strong>Next</strong> to step through."
+    },
+    {
+      title: "Smarter pause",
+      body: "Paused time no longer bleeds into the next task. Hit <strong>Pause</strong> and your current task is logged then; the pause shows as a greyed-out 'Paused' row in the Tracker and doesn't count towards your day total. The timer also keeps counting while paused so you can see how long you've been on a break."
+    },
+    {
+      title: "Priorities & scheduling",
+      body: "To-Dos now have a 🚩 <strong>high-priority</strong> flag — flagged items rise to the top of the list. The same flag works on Day Planner blocks. Adding a To-Do to the plan tags it with a subtle blue outline so you know it's scheduled."
+    },
+    {
+      title: "Plan future days in one click",
+      body: "The <strong>Add planned task</strong> dialog now has a date picker — defaults to today, click to pick any day. No more navigating to a future date first."
+    },
+    {
+      title: "Track your high-payoff time 💎",
+      body: "Tick <strong>'💎 High payoff'</strong> on any category in <strong>Settings → Categories</strong>. A new chart on the Insights page tracks how many hours you're spending on the work that actually moves the needle — daily total + per-active-day average."
+    },
+    {
+      title: "Got an idea? Tell us 💡",
+      body: "There's a <strong>Feature Requests</strong> box in Settings. Type your idea, hit <strong>Register request</strong>, and it goes straight to the team. You'll see the status of your requests right there."
+    }
+  ],
   // 5.5.6 — first build the wider team receives after 5.5.4. Covers the
   // 5.5.5 + 5.5.6 changes (pause rework, priority/scheduled flags, High
-  // Payoff tracking, etc) in one consolidated tour.
+  // Payoff tracking, etc) in one consolidated tour. Kept for completeness;
+  // most users will land on the 5.6.1 key above instead.
   '5.5.6': [
     {
       title: "What's new in DayTimer 🎉",
