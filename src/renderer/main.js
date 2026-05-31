@@ -3854,17 +3854,22 @@ function renderLocalTodos() {
     const catColour = t.category ? categoryColour(t.category) : 'var(--text-dim)';
     const catSoft = t.category ? colourToSoft(catColour) : 'transparent';
     const priorityBtn = `<button class="mini-btn" data-action="toggle-priority" data-id="${t.id}" title="${t.is_high_priority ? 'Remove priority flag' : 'Mark as high priority'}" style="color:${t.is_high_priority ? '#ef4444' : 'var(--text-dim)'};font-size:13px;line-height:1;">${t.is_high_priority ? '🚩' : '⚐'}</button>`;
-    const scheduledBadge = t.scheduled_date
-      ? `<span class="todo-cat" style="background:rgba(59,130,246,0.12);color:#3b82f6;" title="Added to Day Plan for ${escapeHtml(t.scheduled_date)}">📅 Scheduled</span>`
-      : '';
+    // Scheduled state shows as a blue outline on the row + a tooltip
+    // with the date — no extra column needed.
+    const scheduledClass = t.scheduled_date ? ' scheduled' : '';
+    const rowTitle = t.scheduled_date ? `Scheduled for ${escapeHtml(t.scheduled_date)}` : '';
+    // Category cell occupies the slot whether or not a category is set —
+    // keeps the grid columns aligned across rows.
+    const catCell = t.category
+      ? `<span class="todo-cat" style="background:${catSoft};color:${catColour};">${escapeHtml(t.category)}</span>`
+      : `<span></span>`;
     return `
-      <div class="todo-row ${t.is_done ? 'done' : ''} ${t.is_high_priority ? 'high-priority' : ''}" data-id="${t.id}" draggable="true">
+      <div class="todo-row ${t.is_done ? 'done' : ''}${scheduledClass} ${t.is_high_priority ? 'high-priority' : ''}" data-id="${t.id}" draggable="true" title="${rowTitle}">
         <div class="todo-checkbox ${t.is_done ? 'checked' : ''}" data-action="toggle" data-id="${t.id}">
           ${t.is_done ? '✓' : ''}
         </div>
         <div class="todo-name" data-action="edit" data-id="${t.id}">${escapeHtml(t.task_name)}</div>
-        ${scheduledBadge}
-        ${t.category ? `<span class="todo-cat" style="background:${catSoft};color:${catColour};">${escapeHtml(t.category)}</span>` : ''}
+        ${catCell}
         ${priorityBtn}
         <button class="todo-add-to-plan" data-action="to-plan" data-id="${t.id}" title="Add to today's plan">→ Plan</button>
         <button class="mini-btn danger" data-action="delete" data-id="${t.id}" title="Delete">✕</button>
