@@ -2431,6 +2431,9 @@ function loadSettings() {
   loadFeatureRequests();
   loadFeatureRequestsAdmin();
 
+  // ── Teams (admin only) ─────────────────────────────────────
+  loadTeamsAdmin();
+
   // ── Streak badge toggle ────────────────────────────────────
   const streakT = $('showStreakToggle');
   if (streakT && !streakT.dataset.wired) {
@@ -2735,6 +2738,224 @@ async function loadFeatureRequestsAdmin() {
   }
 
   render();
+}
+
+// ── Teams (admin-only build/edit) ─────────────────────────────
+// Only Flynn sees this section. Lets him create teams, assign managers
+// and members by email, and delete teams. The dashboard built on top
+// of this data ships in 5.6.0-beta.2.
+const TEAMS_ADMIN_EMAIL = 'flynn@howleruk.com';
+
+async function loadTeamsAdmin() {
+  const section = $('teamsAdminSection');
+  const list    = $('teamsList');
+  const addBtn  = $('addTeamBtn');
+  if (!section || !list || !addBtn) return;
+
+  if (!currentUser || currentUser.email !== TEAMS_ADMIN_EMAIL) {
+    section.style.display = 'none';
+    return;
+  }
+  section.style.display = '';
+
+  if (!addBtn.dataset.wired) {
+    addBtn.addEventListener('click', () => openTeamModal(null));
+    addBtn.dataset.wired = 'true';
+  }
+
+  if (!dbReady) return;
+  try {
+    // Pull everything in parallel: teams + their managers + their members
+    const [teamsRes, mgrsRes, mbrsRes, profsRes] = await Promise.all([
+      dbClient.from('teams').select('*').order('name', { ascending: true }),
+      dbClient.from('team_managers').select('*'),
+      dbClient.from('team_members').select('*'),
+      dbClient.from('profiles').select('id,email')
+    ]);
+
+    const teams    = teamsRes.data || [];
+    const mgrs     = mgrsRes.data || [];
+    const mbrs     = mbrsRes.data || [];
+    const profsArr = profsRes.data || [];
+    const profById = {};
+    profsArr.forEach(p => { profById[p.id] = p.email; });
+
+    if (teams.length === 0) {
+      list.innerHTML = '<div style="font-size:12px;color:var(--text-dim);padding:8px 0;">No teams yet. Click <strong>+ Add team</strong> to create one.</div>';
+      return;
+    }
+
+    list.innerHTML = '';
+    teams.forEach(team => {
+      const teamMgrs = mgrs.filter(m => m.team_id === team.id).map(m => profById[m.user_id]).filter(Boolean);
+      const teamMbrs = mbrs.filter(m => m.team_id === team.id).map(m => profById[m.user_id]).filter(Boolean);
+
+      const card = document.createElement('div');
+      card.style.cssText = 'padding:12px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;gap:6px;';
+
+      const headerRow = document.createElement('div');
+      headerRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;';
+      const nameEl = document.createElement('div');
+      nameEl.style.cssText = 'font-size:14px;font-weight:600;color:var(--text);';
+      nameEl.textContent = team.name;
+      const actions = document.createElement('div');
+      actions.style.cssText = 'display:flex;gap:6px;';
+      const editBtn = document.createElement('button');
+      editBtn.className = 'modal-btn';
+      editBtn.style.cssText = 'font-size:11px;padding:4px 10px;';
+      editBtn.textContent = 'Edit';
+      editBtn.addEventListener('click', () => openTeamModal({ team, managerEmails: teamMgrs, memberEmails: teamMbrs }));
+      const delBtn = document.createElement('button');
+      delBtn.className = 'modal-btn';
+      delBtn.style.cssText = 'font-size:11px;padding:4px 10px;color:var(--danger);';
+      delBtn.textContent = 'Delete';
+      delBtn.addEventListener('click', () => deleteTeam(team));
+      actions.appendChild(editBtn);
+      actions.appendChild(delBtn);
+      headerRow.appendChild(nameEl);
+      headerRow.appendChild(actions);
+
+      const mgrsLine = document.createElement('div');
+      mgrsLine.style.cssText = 'font-size:11px;color:var(--text-dim);';
+      mgrsLine.innerHTML = `<strong>Managers:</strong> ${teamMgrs.length ? escapeHtml(teamMgrs.join(', ')) : '<em>none assigned</em>'}`;
+
+      const mbrsLine = document.createElement('div');
+      mbrsLine.style.cssText = 'font-size:11px;color:var(--text-dim);';
+      mbrsLine.innerHTML = `<strong>Members (${teamMbrs.length}):</strong> ${teamMbrs.length ? escapeHtml(teamMbrs.join(', ')) : '<em>none assigned</em>'}`;
+
+      card.appendChild(headerRow);
+      card.appendChild(mgrsLine);
+      card.appendChild(mbrsLine);
+      list.appendChild(card);
+    });
+  } catch (e) {
+    console.error('loadTeamsAdmin failed', e);
+    list.innerHTML = '<div style="font-size:12px;color:var(--danger);">⚠ Could not load teams. Have you run supabase-v5.6.0.sql?</div>';
+  }
+}
+
+// Resolve a comma/semicolon/newline-separated list of emails to user_ids
+// via the profiles table. Returns { resolved: [{email, id}], missing: [email] }.
+async function resolveEmailsToIds(emailString) {
+  const emails = (emailString || '')
+    .split(/[,;\n]/)
+    .map(e => e.trim().toLowerCase())
+    .filter(Boolean);
+  if (emails.length === 0) return { resolved: [], missing: [] };
+
+  const { data, error } = await dbClient.from('profiles').select('id,email').in('email', emails);
+  if (error) throw error;
+  const found = new Map((data || []).map(p => [p.email.toLowerCase(), p.id]));
+
+  const resolved = [];
+  const missing = [];
+  emails.forEach(e => {
+    if (found.has(e)) resolved.push({ email: e, id: found.get(e) });
+    else missing.push(e);
+  });
+  return { resolved, missing };
+}
+
+function openTeamModal(existing) {
+  // existing = null for new team, or { team, managerEmails:[], memberEmails:[] }
+  const isEdit = !!existing;
+  const teamName     = isEdit ? existing.team.name : '';
+  const managerEmails = isEdit ? existing.managerEmails.join(', ') : '';
+  const memberEmails  = isEdit ? existing.memberEmails.join(', ')  : '';
+
+  openModal(`
+    <div class="modal-title">${isEdit ? 'Edit' : 'Add'} team</div>
+    <div style="display:flex;flex-direction:column;gap:12px;">
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Team name</div>
+        <input type="text" class="field-input" id="teamName" value="${escapeHtml(teamName)}" placeholder="e.g. Sales Team" style="width:100%;" autofocus>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Managers (email addresses, comma-separated)</div>
+        <textarea class="field-input" id="teamManagers" placeholder="ben@howleruk.com" rows="2" style="width:100%;resize:vertical;font-size:12px;">${escapeHtml(managerEmails)}</textarea>
+      </div>
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Members (email addresses, comma-separated)</div>
+        <textarea class="field-input" id="teamMembers" placeholder="randall@howleruk.com, logan@howleruk.com" rows="3" style="width:100%;resize:vertical;font-size:12px;">${escapeHtml(memberEmails)}</textarea>
+      </div>
+      <div id="teamModalStatus" style="font-size:11px;color:var(--text-dim);min-height:14px;"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="modal-btn" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn primary" id="saveTeamBtn">${isEdit ? 'Save' : 'Create'}</button>
+    </div>
+  `);
+
+  $('saveTeamBtn').addEventListener('click', async () => {
+    const status = $('teamModalStatus');
+    const name = $('teamName').value.trim();
+    if (!name) {
+      status.textContent = '⚠ Team name is required';
+      status.style.color = 'var(--danger)';
+      return;
+    }
+
+    try {
+      // Resolve emails to user_ids via profiles. Anyone who hasn't logged
+      // into DayTimer at least once won't be in profiles yet — flag them.
+      const [mgrLookup, mbrLookup] = await Promise.all([
+        resolveEmailsToIds($('teamManagers').value),
+        resolveEmailsToIds($('teamMembers').value)
+      ]);
+
+      const allMissing = [...mgrLookup.missing, ...mbrLookup.missing];
+      if (allMissing.length > 0) {
+        status.textContent = `⚠ Unknown / not yet signed in: ${allMissing.join(', ')}. They must open DayTimer once before being added.`;
+        status.style.color = 'var(--danger)';
+        return;
+      }
+
+      let teamId;
+      if (isEdit) {
+        teamId = existing.team.id;
+        await dbClient.from('teams').update({ name }).eq('id', teamId);
+        // Wipe and replace managers + members — simplest correct approach
+        // for edit, since it's a small admin-only operation.
+        await dbClient.from('team_managers').delete().eq('team_id', teamId);
+        await dbClient.from('team_members').delete().eq('team_id', teamId);
+      } else {
+        const ins = await dbClient.from('teams').insert([{ name }]).select().single();
+        if (ins.error) throw ins.error;
+        teamId = ins.data.id;
+      }
+
+      if (mgrLookup.resolved.length > 0) {
+        const mgrRows = mgrLookup.resolved.map(r => ({ team_id: teamId, user_id: r.id }));
+        const r = await dbClient.from('team_managers').insert(mgrRows);
+        if (r.error) throw r.error;
+      }
+      if (mbrLookup.resolved.length > 0) {
+        const mbrRows = mbrLookup.resolved.map(r => ({ team_id: teamId, user_id: r.id }));
+        const r = await dbClient.from('team_members').insert(mbrRows);
+        if (r.error) throw r.error;
+      }
+
+      closeModal();
+      loadTeamsAdmin();
+      if (window.dtFun) window.dtFun.toast(isEdit ? 'Team updated' : 'Team created', { emoji: '✅', duration: 2500 });
+    } catch (e) {
+      console.error('Save team failed', e);
+      status.textContent = '⚠ Could not save team: ' + (e.message || 'unknown error');
+      status.style.color = 'var(--danger)';
+    }
+  });
+}
+
+async function deleteTeam(team) {
+  if (!confirm(`Delete "${team.name}"? Managers and members will lose access (their personal time entries are unaffected).`)) return;
+  try {
+    await dbClient.from('teams').delete().eq('id', team.id);
+    loadTeamsAdmin();
+    if (window.dtFun) window.dtFun.toast('Team deleted', { emoji: '🗑️', duration: 2500 });
+  } catch (e) {
+    console.error('Delete team failed', e);
+    if (window.dtFun) window.dtFun.toast('Could not delete team', { emoji: '⚠️', duration: 3000 });
+  }
 }
 
 async function setupAutolaunch() {
