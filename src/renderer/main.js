@@ -3162,9 +3162,9 @@ async function renderManagerStats() {
 
   const taskEntries = entries.filter(e => !e.entry_type || e.entry_type === 'task');
 
-  // ── Headline stats (always TEAM-wide) ──
-  // Avg log-in: earliest task started_at per (member,date) → average wall clock
-  // Avg log-out: latest task ended_at per (member,date) → average wall clock
+  // ── Team-wide firstByDay / lastByDay (used by the per-member table below)
+  // We always build this from the full task set; the headline gets its own
+  // scoped version derived from whatever's currently selected.
   const firstByDay = new Map();   // key = uid|date → earliest Date
   const lastByDay  = new Map();   // key = uid|date → latest  Date
   taskEntries.forEach(e => {
@@ -3176,18 +3176,50 @@ async function renderManagerStats() {
     const prevLast  = lastByDay.get(k);
     if (!prevLast  || end   > prevLast)  lastByDay.set(k, end);
   });
-  $('mgrAvgLogIn').textContent  = averageTimeOfDay(Array.from(firstByDay.values())) || '—';
-  $('mgrAvgLogOut').textContent = averageTimeOfDay(Array.from(lastByDay.values()))  || '—';
+
+  // ── Headline stats — follow the member selector ──
+  // If a single member is picked the headline is just their numbers;
+  // otherwise it's the whole team combined. Title updates accordingly.
+  const filterMember = managerState.selectedMember;
+  const isSingleMember = filterMember && filterMember !== '__all__';
+  const headlineEntries = isSingleMember
+    ? taskEntries.filter(e => e.user_id === filterMember)
+    : taskEntries;
+  const headlinePlans = isSingleMember
+    ? plans.filter(p => p.user_id === filterMember)
+    : plans;
+
+  const headlineTitleEl = $('managerHeadlineTitle');
+  if (headlineTitleEl) {
+    headlineTitleEl.textContent = isSingleMember
+      ? `Headline — ${managerState.members.find(m => m.id === filterMember)?.email || 'selected member'}`
+      : 'Team headline (all members combined)';
+  }
+
+  // Build firstByDay / lastByDay scoped to the headline entries
+  const hlFirstByDay = new Map();
+  const hlLastByDay  = new Map();
+  headlineEntries.forEach(e => {
+    const k = e.user_id + '|' + e.date;
+    const start = new Date(e.started_at);
+    const end   = new Date(e.ended_at);
+    const prevFirst = hlFirstByDay.get(k);
+    if (!prevFirst || start < prevFirst) hlFirstByDay.set(k, start);
+    const prevLast  = hlLastByDay.get(k);
+    if (!prevLast  || end   > prevLast)  hlLastByDay.set(k, end);
+  });
+  $('mgrAvgLogIn').textContent  = averageTimeOfDay(Array.from(hlFirstByDay.values())) || '—';
+  $('mgrAvgLogOut').textContent = averageTimeOfDay(Array.from(hlLastByDay.values()))  || '—';
 
   // Plan vs Actual % — averaged per (member,date) then over all
-  const dayKeys = new Set([...firstByDay.keys()]);
+  const dayKeys = new Set([...hlFirstByDay.keys()]);
   // Also include days that had plans but no actuals
-  plans.forEach(p => dayKeys.add(p.user_id + '|' + p.date));
+  headlinePlans.forEach(p => dayKeys.add(p.user_id + '|' + p.date));
   const matchScores = [];
   dayKeys.forEach(k => {
     const [uid, date] = k.split('|');
-    const dayPlans   = plans.filter(p => p.user_id === uid && p.date === date);
-    const dayActuals = taskEntries.filter(e => e.user_id === uid && e.date === date);
+    const dayPlans   = headlinePlans.filter(p => p.user_id === uid && p.date === date);
+    const dayActuals = headlineEntries.filter(e => e.user_id === uid && e.date === date);
     const match = calculatePlanMatch(dayPlans, dayActuals);
     if (match !== null) matchScores.push(match);
   });
@@ -3195,14 +3227,11 @@ async function renderManagerStats() {
     ? Math.round(matchScores.reduce((s, x) => s + x, 0) / matchScores.length) + '%'
     : '—';
 
-  const totalSecs = taskEntries.reduce((s, e) => s + e.duration_secs, 0);
+  const totalSecs = headlineEntries.reduce((s, e) => s + e.duration_secs, 0);
   $('mgrTotalHours').textContent = formatHoursMins(totalSecs) || '0m';
 
-  // ── Time by Category (selected member OR all) ──
-  const filterMember = managerState.selectedMember;
-  const catSourceEntries = (filterMember && filterMember !== '__all__')
-    ? taskEntries.filter(e => e.user_id === filterMember)
-    : taskEntries;
+  // ── Time by Category — same source as the headline (selected member OR all) ──
+  const catSourceEntries = headlineEntries;
 
   const catTitle = $('mgrCatTitle');
   const memberLabel = filterMember && filterMember !== '__all__'
