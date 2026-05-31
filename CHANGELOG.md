@@ -2,6 +2,16 @@
 
 All notable changes to DayTimer.
 
+## [5.6.0] — 2026-05-20
+
+### Added
+- **Teams & Managers** — admin can build teams (Settings → Teams) and assign managers + members by email. Managers get a new sidebar dashboard with team headline stats (avg log-in, avg log-out, Plan vs Actual %, total tracked), per-member time-by-category, and a per-member summary table. Visible only to actual team managers — no admin override on the dashboard.
+- New `profiles` table mirroring `auth.users` emails so the admin UI can resolve emails → user IDs.
+- New RLS policies giving managers SELECT access to their team members' `time_entries` and `day_plans`.
+
+### Notes
+- No "What's new" tour for this release — the feature is gated to managers, so most staff would see nothing actionable.
+
 ## [5.5.6] — 2026-05-20
 
 ### Added

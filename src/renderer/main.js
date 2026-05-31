@@ -2981,16 +2981,16 @@ const managerState = {
 async function refreshManagerNavVisibility() {
   const navBtn = document.getElementById('navManager');
   if (!navBtn || !currentUser || !dbReady) return;
-  const isAdmin = currentUser.email === TEAMS_ADMIN_EMAIL;
-  let show = isAdmin;
-  if (!show) {
-    try {
-      const { count } = await dbClient.from('team_managers')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', currentUserId);
-      show = (count || 0) > 0;
-    } catch (e) { /* table may not exist yet pre-migration — keep hidden */ }
-  }
+  // Show only if the user actually manages at least one team.
+  // (Admin no longer gets an override — they can still build teams
+  // in Settings → Teams, but the dashboard belongs to real managers.)
+  let show = false;
+  try {
+    const { count } = await dbClient.from('team_managers')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', currentUserId);
+    show = (count || 0) > 0;
+  } catch (e) { /* table may not exist yet pre-migration — keep hidden */ }
   navBtn.style.display = show ? '' : 'none';
 }
 
@@ -3054,16 +3054,15 @@ async function loadManager() {
     managerState.teams = [];
   }
 
-  // Filter to teams I'm actually a manager of (admin keeps all).
-  const isAdmin = currentUser && currentUser.email === TEAMS_ADMIN_EMAIL;
-  if (!isAdmin) {
-    try {
-      const mineRes = await dbClient.from('team_managers')
-        .select('team_id').eq('user_id', currentUserId);
-      const ids = new Set((mineRes.data || []).map(r => r.team_id));
-      managerState.teams = managerState.teams.filter(t => ids.has(t.id));
-    } catch (e) { /* keep what we have */ }
-  }
+  // Filter to teams the current user actually manages. The dashboard
+  // is per-manager; admin doesn't get a bypass here (they still build
+  // / edit teams in Settings → Teams).
+  try {
+    const mineRes = await dbClient.from('team_managers')
+      .select('team_id').eq('user_id', currentUserId);
+    const ids = new Set((mineRes.data || []).map(r => r.team_id));
+    managerState.teams = managerState.teams.filter(t => ids.has(t.id));
+  } catch (e) { /* keep what we have */ }
 
   const teamSel = $('managerTeamSelect');
   if (managerState.teams.length === 0) {
