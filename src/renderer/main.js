@@ -3808,13 +3808,28 @@ async function loadLocalTodos() {
   if (!dbReady) return;
   try {
     // High-priority items rise to the top within each (open / done) group.
-    const { data } = await dbClient.from('todos')
+    let result = await dbClient.from('todos')
       .select('*')
       .order('is_done', { ascending: true })
       .order('is_high_priority', { ascending: false })
       .order('sort_order', { ascending: true })
       .order('created_at', { ascending: true });
-    todoState.todos = data || [];
+
+    if (result.error) {
+      // Likely the v5.5.5 migration hasn't been run yet — fall back to
+      // the legacy ordering so the list still loads. Priority sort just
+      // won't apply until the migration is run.
+      console.warn(
+        'To-dos: fell back to legacy ordering. Run supabase-v5.5.5.sql to enable priority sort.',
+        result.error
+      );
+      result = await dbClient.from('todos')
+        .select('*')
+        .order('is_done', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+    }
+    todoState.todos = result.data || [];
     renderLocalTodos();
   } catch (e) { console.error('Load todos error:', e); }
 }

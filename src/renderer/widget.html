@@ -978,7 +978,12 @@ body {
 
     // ── Timer (uses real timestamp diff so it doesn't drift) ─
     setInterval(() => {
-      if (dayStarted && !isPaused && startTime) {
+      if (!dayStarted) return;
+      if (isPaused && pauseBlockStartTime) {
+        // While paused, count up so you can see how long you've been on a break.
+        const pausedSecs = Math.max(0, Math.floor((Date.now() - pauseBlockStartTime.getTime()) / 1000));
+        timerDisplay.textContent = formatDuration(pausedSecs);
+      } else if (!isPaused && startTime) {
         const elapsedMs = Date.now() - startTime.getTime() - pausedAccumulated;
         seconds = Math.max(0, Math.floor(elapsedMs / 1000));
         timerDisplay.textContent = formatDuration(seconds);
