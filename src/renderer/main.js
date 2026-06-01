@@ -429,6 +429,7 @@ async function loadTracker() {
     try {
       const { data, error } = await dbClient.from('time_entries')
         .select('*').eq('date', dateStr)
+        .eq('user_id', currentUserId)
         .order('started_at', { ascending: true });
       if (!error) entries = data || [];
     } catch (e) {
@@ -773,8 +774,8 @@ async function loadPlanner() {
   if (dbReady) {
     try {
       const [planRes, entryRes] = await Promise.all([
-        dbClient.from('day_plans').select('*').eq('date', dateStr).order('planned_start', { ascending: true }),
-        dbClient.from('time_entries').select('*').eq('date', dateStr).order('started_at', { ascending: true })
+        dbClient.from('day_plans').select('*').eq('date', dateStr).eq('user_id', currentUserId).order('planned_start', { ascending: true }),
+        dbClient.from('time_entries').select('*').eq('date', dateStr).eq('user_id', currentUserId).order('started_at', { ascending: true })
       ]);
       planItems = planRes.data || [];
       const allEntries = entryRes.data || [];
@@ -1638,6 +1639,7 @@ async function getLastPlannedEndTime() {
     const { data } = await dbClient.from('day_plans')
       .select('planned_end')
       .eq('date', dateToString(state.plannerDate))
+      .eq('user_id', currentUserId)
       .order('planned_end', { ascending: false })
       .limit(1);
     if (data && data.length > 0) {
@@ -1867,6 +1869,7 @@ async function loadInsights() {
           .gte('date', dateToString(from))
           .lte('date', dateToString(to))
           .eq('entry_type', 'task')
+          .eq('user_id', currentUserId)
           .order('started_at', { ascending: true }),
         dbClient.from('goals').select('*')
       ]);
@@ -4047,6 +4050,7 @@ async function loadStats() {
       .select('*')
       .gte('date', dateToString(from))
       .lte('date', dateToString(to))
+      .eq('user_id', currentUserId)
       .eq('entry_type', 'task')
       .order('started_at', { ascending: true });
 
@@ -4279,13 +4283,15 @@ async function renderPlanAdherence() {
     const { data: plans } = await dbClient.from('day_plans')
       .select('*')
       .gte('date', dateToString(from))
-      .lte('date', dateToString(to));
+      .lte('date', dateToString(to))
+      .eq('user_id', currentUserId);
 
     const { data: entries } = await dbClient.from('time_entries')
       .select('*')
       .gte('date', dateToString(from))
       .lte('date', dateToString(to))
-      .eq('entry_type', 'task');
+      .eq('entry_type', 'task')
+      .eq('user_id', currentUserId);
 
     if (!plans || plans.length === 0) {
       $('planAdherence').innerHTML = '<div class="empty-state"><div>Not enough data yet</div></div>';
@@ -5371,7 +5377,8 @@ async function maybeShowWeekSummary() {
     const { data } = await dbClient.from('time_entries')
       .select('category, duration_secs, entry_type')
       .gte('started_at', weekStart.toISOString())
-      .lte('started_at', now.toISOString());
+      .lte('started_at', now.toISOString())
+      .eq('user_id', currentUserId);
 
     if (!data || data.length === 0) return;
 

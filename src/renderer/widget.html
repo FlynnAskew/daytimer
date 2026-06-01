@@ -596,6 +596,7 @@ body {
         const sinceIso = new Date(Date.now() - 400 * 24 * 60 * 60 * 1000).toISOString();
         const { data } = await dbClient.from('time_entries')
           .select('date')
+          .eq('user_id', currentUserId)
           .gte('started_at', sinceIso);
         if (!data) return;
         // Build a Set of YYYY-MM-DD that had entries
@@ -896,6 +897,7 @@ body {
         const { data } = await dbClient.from('time_entries')
           .select('id, entry_type, ended_at')
           .eq('date', todayStr())
+          .eq('user_id', currentUserId)
           .order('started_at', { ascending: false })
           .limit(1);
 
@@ -1005,6 +1007,7 @@ body {
       try {
         const { data: plans } = await dbClient.from('day_plans')
           .select('*').eq('date', todayStr())
+          .eq('user_id', currentUserId)
           .order('planned_start', { ascending: true });
         todayPlan = plans || [];
 

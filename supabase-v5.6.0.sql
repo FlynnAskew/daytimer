@@ -168,10 +168,18 @@ CREATE POLICY "tmb_admin_ins" ON team_members FOR INSERT
 CREATE POLICY "tmb_admin_del" ON team_members FOR DELETE
   USING (auth.jwt() ->> 'email' = 'flynn@howleruk.com');
 
--- ── Manager / admin read access to team members' data ────────
--- Adds SELECT policies on time_entries and day_plans so a manager (or
--- admin) can read their team members' rows. Each member's own existing
--- self-RLS (auth.uid() = user_id) is untouched and still applies.
+-- ── Manager read access to team members' data ────────────────
+-- Adds SELECT policies on time_entries and day_plans so a manager can
+-- read their team members' rows. Each member's own existing self-RLS
+-- (auth.uid() = user_id) is untouched and still applies.
+--
+-- IMPORTANT: there is no admin blanket-read policy here. An earlier draft
+-- of this file added te_select_admin / dp_select_admin, which had the
+-- (bad) side-effect of making Flynn's own Day Plan view show every user's
+-- planned tasks. Removed — admins still build / edit teams via the
+-- existing teams_* policies, but they don't get to read everyone's
+-- personal tracking data on their own dashboards. (Re-running this file
+-- drops those policies if they were created by the earlier version.)
 DO $$ BEGIN
   DROP POLICY IF EXISTS "te_select_manager" ON time_entries;
   DROP POLICY IF EXISTS "te_select_admin"   ON time_entries;
@@ -179,14 +187,8 @@ DO $$ BEGIN
   DROP POLICY IF EXISTS "dp_select_admin"   ON day_plans;
 EXCEPTION WHEN OTHERS THEN NULL; END $$;
 
-CREATE POLICY "te_select_admin" ON time_entries FOR SELECT
-USING (auth.jwt() ->> 'email' = 'flynn@howleruk.com');
-
 CREATE POLICY "te_select_manager" ON time_entries FOR SELECT
 USING (public.is_team_manager_of_user(auth.uid(), time_entries.user_id));
-
-CREATE POLICY "dp_select_admin" ON day_plans FOR SELECT
-USING (auth.jwt() ->> 'email' = 'flynn@howleruk.com');
 
 CREATE POLICY "dp_select_manager" ON day_plans FOR SELECT
 USING (public.is_team_manager_of_user(auth.uid(), day_plans.user_id));

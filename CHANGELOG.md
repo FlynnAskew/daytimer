@@ -2,6 +2,11 @@
 
 All notable changes to DayTimer.
 
+## [5.6.2] — 2026-05-20
+
+### Fixed
+- **Data leak on admin's personal Day Plan / Tracker / Insights / Stats views.** The v5.6.0 RLS additions included a blanket admin SELECT policy on `time_entries` and `day_plans`, which made every user's data visible on Flynn's personal dashboards. Policies removed; manager-only SELECT policies (which are the legitimate ones) remain. Personal-view queries now also pin `user_id = me` client-side as defence in depth.
+
 ## [5.6.1] — 2026-05-20
 
 ### Added
