@@ -803,22 +803,31 @@ async function loadPlanner() {
         endISO:   dayEnd.toISOString()
       });
       if (result && result.ok) {
-        // Look up any saved category assignments for these events
+        // Look up any saved category assignments + dismissed flags for these events
         let assignmentMap = {};
+        let dismissedIds = new Set();
         if (dbReady && result.events.length > 0) {
           try {
             const ids = result.events.map(e => e.ms_event_id);
             const { data: cached } = await dbClient.from('calendar_events')
-              .select('ms_event_id, category')
+              .select('ms_event_id, category, is_dismissed')
               .eq('date', dateStr)
               .in('ms_event_id', ids);
-            (cached || []).forEach(c => { if (c.category) assignmentMap[c.ms_event_id] = c.category; });
-          } catch (e) { /* table may not exist yet — ignore */ }
+            (cached || []).forEach(c => {
+              if (c.category) assignmentMap[c.ms_event_id] = c.category;
+              if (c.is_dismissed) dismissedIds.add(c.ms_event_id);
+            });
+          } catch (e) { /* table or column may not exist yet — ignore */ }
         }
 
         result.events.forEach(ev => {
           if (ev.is_cancelled) return;
-          ev.category = assignmentMap[ev.ms_event_id] || null;
+          const cat = assignmentMap[ev.ms_event_id];
+          // Dismissed AND no category → user clicked "Remove" to take this
+          // event out of their day plan. Hide it. (Setting a category later
+          // clears the dismissed flag, so the event comes back.)
+          if (dismissedIds.has(ev.ms_event_id) && !cat) return;
+          ev.category = cat || null;
           if (ev.is_all_day) {
             allDayEvents.push(ev);
           } else {
@@ -1159,11 +1168,18 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
     : '';
 
   if (item._isCalendarEvent) {
+    // Show a small red "Remove" button when there's no category — lets the
+    // user take a meeting they're not actually attending out of their plan.
+    // Setting a category hides the button (means "I am attending this").
+    const removeBtn = !item.category
+      ? `<button class="cal-event-remove" title="Remove from day plan" style="flex-shrink:0;margin-left:6px;background:none;border:1px solid rgba(239,68,68,0.4);color:#ef4444;cursor:pointer;font-size:10px;font-weight:600;padding:1px 6px;border-radius:4px;line-height:1.4;">Remove</button>`
+      : '';
     block.innerHTML = `
       <div style="overflow:hidden;min-width:0;flex:1;">
         <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📅 ${escapeHtml(item.task_name)}</div>
       </div>
       <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Set…')}</div>
+      ${removeBtn}
     `;
   } else {
     block.innerHTML = `
@@ -1202,6 +1218,16 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
     attachDragToMove(block, item, PX_PER_MIN);
   }
 
+  // Wire the calendar-event Remove button (stop propagation so it doesn't
+  // also trigger the block click → category picker).
+  const removeEl = block.querySelector('.cal-event-remove');
+  if (removeEl) {
+    removeEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      dismissCalendarEvent(item);
+    });
+  }
+
   // Click to edit (only if it wasn't a drag action)
   block.addEventListener('click', (e) => {
     if (block.dataset.wasDragged === 'true') {
@@ -1214,6 +1240,38 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
       openEditPlanItem(item);
     }
   });
+}
+
+// Take a MS calendar event out of the day plan. Stores is_dismissed=true
+// on calendar_events; doesn't touch Outlook. Setting a category on the
+// event later re-shows it.
+async function dismissCalendarEvent(item) {
+  if (!dbReady) return;
+  try {
+    const startISO = new Date(item.date + 'T' + item.planned_start + ':00').toISOString();
+    const endISO   = new Date(item.date + 'T' + item.planned_end   + ':00').toISOString();
+    const row = withUid({
+      ms_event_id:    item.ms_event_id,
+      subject:        item.task_name,
+      organiser:      item.organiser || null,
+      location:       item.location  || null,
+      starts_at:      startISO,
+      ends_at:        endISO,
+      is_all_day:     false,
+      date:           item.date,
+      category:       null,
+      is_dismissed:   true,
+      last_synced_at: new Date().toISOString()
+    });
+    const { error } = await dbClient.from('calendar_events')
+      .upsert(row, { onConflict: 'user_id,ms_event_id' });
+    if (error) throw error;
+  } catch (e) {
+    console.error('Dismiss calendar event failed', e);
+    if (window.dtFun) window.dtFun.toast('Could not remove event', { emoji: '⚠️', duration: 3000 });
+    return;
+  }
+  loadPlanner();
 }
 
 function attachResizeHandle(block, item, pxPerMin) {
@@ -1839,6 +1897,9 @@ function openCalendarEventCategoryPicker(item) {
         is_all_day:  !!item.is_all_day,
         date:        item.date,
         category:    newCategory,
+        // Setting or clearing a category implies "I want this event visible"
+        // — wipes any prior Remove so the block reappears on the planner.
+        is_dismissed: false,
         last_synced_at: new Date().toISOString()
       });
       const { error } = await dbClient.from('calendar_events')
