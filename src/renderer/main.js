@@ -1178,8 +1178,8 @@ function placeItemBlock(container, item, mode, compact, planItems, entries, colu
       <div style="overflow:hidden;min-width:0;flex:1;">
         <div class="task-block-title" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">📅 ${escapeHtml(item.task_name)}</div>
       </div>
-      <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Set…')}</div>
       ${removeBtn}
+      <div class="task-block-cat" style="flex-shrink:0;margin-left:6px;">${escapeHtml(item.category || 'Set…')}</div>
     `;
   } else {
     block.innerHTML = `
@@ -1553,10 +1553,6 @@ async function openAddPlanItem(startTime, explicitEndTime, opts = {}) {
     <div style="display:flex;flex-direction:column;gap:10px;">
       <input type="text" class="field-input" id="planTask" placeholder="Task name" style="width:100%;" autofocus>
       <select class="field-input" id="planCategory" style="width:100%;">${catOptions}</select>
-      <div>
-        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Date</div>
-        <input type="date" class="field-input" id="planDate" value="${defaultDate}" style="width:100%;font-family:'DM Mono',monospace;">
-      </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
         <div>
           <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Start (e.g. 9:30 or 0930)</div>
@@ -1580,6 +1576,12 @@ async function openAddPlanItem(startTime, explicitEndTime, opts = {}) {
         <input type="checkbox" id="planPriority">
         <span>🚩 High priority</span>
       </label>
+      <!-- Date sits at the bottom because 9/10 it stays as today and would
+           otherwise be in the way of the fields that actually change. -->
+      <div>
+        <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px;">Date</div>
+        <input type="date" class="field-input" id="planDate" value="${defaultDate}" style="width:100%;font-family:'DM Mono',monospace;">
+      </div>
     </div>
     <div class="modal-footer">
       <button class="modal-btn" onclick="closeModal()">Cancel</button>
