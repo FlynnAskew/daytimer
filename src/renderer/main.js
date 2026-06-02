@@ -963,6 +963,46 @@ function timeRangeToSecs(start, end) {
   return Math.max(0, (eh * 3600 + em * 60) - (sh * 3600 + sm * 60));
 }
 
+// Fetch day_plans + categorised calendar_events for a date range,
+// merged into a single array of plan-item-like objects.
+// Used wherever Plan vs Actual is calculated outside the live planner view,
+// so MS calendar meetings with a category are included in the metric.
+async function fetchPlansWithCalendarEvents(fromStr, toStr, userId) {
+  const [plansRes, calRes] = await Promise.all([
+    dbClient.from('day_plans')
+      .select('*')
+      .gte('date', fromStr)
+      .lte('date', toStr)
+      .eq('user_id', userId),
+    dbClient.from('calendar_events')
+      .select('ms_event_id, date, starts_at, ends_at, category, is_dismissed')
+      .gte('date', fromStr)
+      .lte('date', toStr)
+      .eq('user_id', userId)
+      .not('category', 'is', null) // only categorised events count as planned
+  ]);
+
+  const plans = plansRes.data || [];
+
+  // Convert calendar_events rows into the same shape calculatePlanMatch expects
+  const calItems = (calRes.data || [])
+    .filter(c => !c.is_dismissed && c.category)
+    .map(c => {
+      const start = new Date(c.starts_at);
+      const end   = new Date(c.ends_at);
+      return {
+        user_id:       userId,
+        date:          c.date,
+        planned_start: pad(start.getHours()) + ':' + pad(start.getMinutes()),
+        planned_end:   pad(end.getHours())   + ':' + pad(end.getMinutes()),
+        category:      c.category,
+        _isCalendarEvent: true
+      };
+    });
+
+  return [...plans, ...calItems];
+}
+
 function calculatePlanMatch(plans, actuals) {
   if (plans.length === 0 && actuals.length === 0) return null;
   if (plans.length === 0) return 0;
@@ -3200,11 +3240,12 @@ async function renderManagerStats() {
     return;
   }
 
-  // Pull time_entries + day_plans for all members in range
+  // Pull time_entries + day_plans + calendar_events for all members in range.
+  // calendar_events with a category count as planned time, same as day_plans.
   let entries = [];
   let plans   = [];
   try {
-    const [eRes, pRes] = await Promise.all([
+    const [eRes, pRes, calRes] = await Promise.all([
       dbClient.from('time_entries')
         .select('user_id,date,started_at,ended_at,duration_secs,category,entry_type,task_name')
         .in('user_id', memberIds)
@@ -3213,12 +3254,32 @@ async function renderManagerStats() {
       dbClient.from('day_plans')
         .select('user_id,date,planned_start,planned_end,category,task_name')
         .in('user_id', memberIds)
+        .gte('date', fromStr).lte('date', toStr),
+      dbClient.from('calendar_events')
+        .select('user_id,date,starts_at,ends_at,category,is_dismissed')
+        .in('user_id', memberIds)
         .gte('date', fromStr).lte('date', toStr)
+        .not('category', 'is', null)
     ]);
     if (eRes.error) throw eRes.error;
     if (pRes.error) throw pRes.error;
     entries = eRes.data || [];
-    plans   = pRes.data || [];
+    // Merge calendar events (categorised, not dismissed) into plans
+    const calItems = (calRes.data || [])
+      .filter(c => !c.is_dismissed && c.category)
+      .map(c => {
+        const start = new Date(c.starts_at);
+        const end   = new Date(c.ends_at);
+        return {
+          user_id:       c.user_id,
+          date:          c.date,
+          planned_start: pad(start.getHours()) + ':' + pad(start.getMinutes()),
+          planned_end:   pad(end.getHours())   + ':' + pad(end.getMinutes()),
+          category:      c.category,
+          task_name:     null
+        };
+      });
+    plans = [...(pRes.data || []), ...calItems];
   } catch (e) {
     console.error('Manager: failed to load team data', e);
     $('mgrCatBars').innerHTML = `<div class="empty-state"><div style="color:var(--danger);">⚠ Could not load team data: ${escapeHtml(e.message || 'unknown')}</div></div>`;
@@ -4343,18 +4404,20 @@ async function renderPlanAdherence() {
   try {
     const from = addDays(new Date(), -30);
     const to = new Date();
-    const { data: plans } = await dbClient.from('day_plans')
-      .select('*')
-      .gte('date', dateToString(from))
-      .lte('date', dateToString(to))
-      .eq('user_id', currentUserId);
+    const fromStr = dateToString(from);
+    const toStr   = dateToString(to);
 
-    const { data: entries } = await dbClient.from('time_entries')
-      .select('*')
-      .gte('date', dateToString(from))
-      .lte('date', dateToString(to))
-      .eq('entry_type', 'task')
-      .eq('user_id', currentUserId);
+    // Use the merged helper so categorised MS calendar events count as planned
+    const [plans, entriesRes] = await Promise.all([
+      fetchPlansWithCalendarEvents(fromStr, toStr, currentUserId),
+      dbClient.from('time_entries')
+        .select('*')
+        .gte('date', fromStr)
+        .lte('date', toStr)
+        .eq('entry_type', 'task')
+        .eq('user_id', currentUserId)
+    ]);
+    const entries = entriesRes.data || [];
 
     if (!plans || plans.length === 0) {
       $('planAdherence').innerHTML = '<div class="empty-state"><div>Not enough data yet</div></div>';
