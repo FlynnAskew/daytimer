@@ -144,23 +144,54 @@ body {
 .pause-btn.active { border-color: #fbbf24; color: #fbbf24; }
 .pause-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
-.hp-toggle {
-  background: var(--surface2);
-  border: 1px solid var(--border);
-  color: var(--text-dim);
-  cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 8px;
-  font-size: 11px;
-  font-family: inherit;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  transition: all 0.15s;
-  min-width: 32px;
+/* HP/LP toggle switch */
+.hp-wrap {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
 }
-.hp-toggle.hp { border-color: #10b981; color: #10b981; background: rgba(16,185,129,0.1); }
-.hp-toggle.lp { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
-.hp-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+.hp-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--text-dim);
+  width: 16px;
+  text-align: center;
+  transition: color 0.2s;
+  user-select: none;
+}
+.hp-label.active-hp { color: #10b981; }
+.hp-label.active-lp { color: #f87171; }
+.hp-switch {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.hp-switch input { display: none; }
+.hp-track {
+  position: absolute;
+  inset: 0;
+  border-radius: 9px;
+  background: #f87171;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.hp-track.disabled { opacity: 0.4; cursor: not-allowed; }
+.hp-switch input:checked + .hp-track { background: #10b981; }
+.hp-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.2s cubic-bezier(0.4,0,0.2,1);
+  pointer-events: none;
+}
+.hp-switch input:checked ~ .hp-thumb { transform: translateX(16px); }
 
 .task-input,
 .category-select {
@@ -373,8 +404,16 @@ body {
     <div class="body" id="widgetBody">
       <div class="timer-row">
         <div class="timer" id="timerDisplay">00:00:00</div>
-        <div style="display:flex;gap:6px;align-items:center;-webkit-app-region:no-drag;">
-          <button class="hp-toggle lp" id="hpToggle" disabled title="Toggle High/Low Payoff for this task">LP</button>
+        <div style="display:flex;gap:8px;align-items:center;-webkit-app-region:no-drag;">
+          <div class="hp-wrap" title="Toggle High/Low Payoff for this task">
+            <span class="hp-label active-lp" id="hpLabelLp">LP</span>
+            <label class="hp-switch">
+              <input type="checkbox" id="hpToggle" disabled>
+              <div class="hp-track disabled" id="hpTrack"></div>
+              <div class="hp-thumb"></div>
+            </label>
+            <span class="hp-label" id="hpLabelHp">HP</span>
+          </div>
           <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
         </div>
       </div>
@@ -529,8 +568,11 @@ body {
     const taskInput = document.getElementById('taskInput');
     const categorySelect = document.getElementById('categorySelect');
     const nextBtn = document.getElementById('nextBtn');
-    const pauseBtn = document.getElementById('pauseBtn');
-    const hpToggle = document.getElementById('hpToggle');
+    const pauseBtn   = document.getElementById('pauseBtn');
+    const hpToggle   = document.getElementById('hpToggle');   // checkbox input
+    const hpTrack    = document.getElementById('hpTrack');
+    const hpLabelLp  = document.getElementById('hpLabelLp');
+    const hpLabelHp  = document.getElementById('hpLabelHp');
     const minimiseBtn = document.getElementById('minimiseBtn');
     const openMainBtn = document.getElementById('openMainBtn');
     const statusDot = document.getElementById('statusDot');
@@ -759,6 +801,7 @@ body {
       pendingEntryType = action.entryType || 'quick_action';
       taskInput.value  = action.name;
       categorySelect.value = action.category || '';
+      updateHpToggleFromCategory();
       resetTimer();
       widgetBody.classList.add('clearing');
       setTimeout(() => widgetBody.classList.remove('clearing'), 180);
@@ -896,8 +939,9 @@ body {
     }
 
     function renderHpToggle() {
-      hpToggle.textContent = isTaskHighPayoff ? 'HP' : 'LP';
-      hpToggle.className = 'hp-toggle ' + (isTaskHighPayoff ? 'hp' : 'lp');
+      hpToggle.checked = isTaskHighPayoff;
+      hpLabelLp.className = 'hp-label' + (!isTaskHighPayoff ? ' active-lp' : '');
+      hpLabelHp.className = 'hp-label' + ( isTaskHighPayoff ? ' active-hp' : '');
     }
 
     function resetHpToggle() {
@@ -905,9 +949,14 @@ body {
       renderHpToggle();
     }
 
-    hpToggle.addEventListener('click', () => {
+    function setHpEnabled(enabled) {
+      hpToggle.disabled = !enabled;
+      hpTrack.classList.toggle('disabled', !enabled);
+    }
+
+    hpToggle.addEventListener('change', () => {
       if (!dayStarted || isPaused) return;
-      isTaskHighPayoff = !isTaskHighPayoff;
+      isTaskHighPayoff = hpToggle.checked;
       renderHpToggle();
     });
 
@@ -971,7 +1020,7 @@ body {
       nextBtn.classList.add('start-day');
       nextBtn.classList.remove('end-day');
       pauseBtn.disabled = true;
-      hpToggle.disabled = true;
+      setHpEnabled(false);
       taskInput.disabled = true;
       categorySelect.disabled = true;
       timerDisplay.textContent = '00:00:00';
@@ -984,7 +1033,7 @@ body {
       nextBtn.textContent = 'Next Task →';
       nextBtn.classList.remove('start-day', 'end-day');
       pauseBtn.disabled = false;
-      hpToggle.disabled = false;
+      setHpEnabled(true);
       taskInput.disabled = false;
       categorySelect.disabled = false;
       startTime = new Date();
@@ -1608,7 +1657,7 @@ body {
         nextBtn.textContent = 'Next Task →';
         nextBtn.classList.remove('end-day');
         updateStatusDotColour();
-        updateHpToggleFromCategory();
+        updateHpToggleFromCategory(); // already present — no change needed
       }
 
       taskInput.focus();
@@ -1745,6 +1794,7 @@ body {
       } else {
         categorySelect.value = '';
       }
+      updateHpToggleFromCategory();
 
       // Mark this planned item as consumed so Coming Up advances to the next
       dismissedUpcomingIds.add(plannedItemId);
