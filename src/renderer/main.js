@@ -2108,6 +2108,16 @@ function renderInsightCharts(entries, from, to) {
   $('summaryAvg').textContent = entries.length > 0
     ? formatHoursMins(Math.round(totalSecs / entries.length))
     : '0m';
+
+  const hpCats = new Set((state.categories || []).filter(c => c.is_high_payoff).map(c => c.name));
+  const hpSecs = entries.reduce((s, e) => {
+    const isHp = (e.is_high_payoff !== null && e.is_high_payoff !== undefined)
+      ? !!e.is_high_payoff
+      : hpCats.has(e.category);
+    return s + (isHp ? e.duration_secs : 0);
+  }, 0);
+  const hpPct = totalSecs > 0 ? Math.round(hpSecs / totalSecs * 100) : 0;
+  if ($('summaryHpPct')) $('summaryHpPct').textContent = hpPct + '%';
 }
 
 function renderHeatmap(entries) {
@@ -2169,8 +2179,8 @@ function renderHeatmap(entries) {
   $('chartHeatmap').innerHTML = html;
 }
 
-// High Payoff per day — bar chart filtered to categories with is_high_payoff,
-// plus a total/avg headline. Lives in the slot the old Week-on-Week chart was in.
+// Stacked LP (red) / HP (green) bar chart per day.
+// Uses entry.is_high_payoff directly when set; falls back to category lookup for legacy entries.
 function renderHighPayoff(entries, from, to) {
   const container = $('chartHighPayoff');
   const totalEl   = $('highPayoffTotal');
@@ -2180,17 +2190,18 @@ function renderHighPayoff(entries, from, to) {
     (state.categories || []).filter(c => c.is_high_payoff).map(c => c.name)
   );
 
-  if (highPayoffCats.size === 0) {
-    container.innerHTML = '<div class="empty-state"><div>Tick "💎 High payoff" on a category in <strong>Settings → Categories</strong> to start tracking it here.</div></div>';
-    if (totalEl) totalEl.textContent = '—';
-    return;
+  function entryIsHp(e) {
+    if (e.is_high_payoff !== null && e.is_high_payoff !== undefined) return !!e.is_high_payoff;
+    return highPayoffCats.has(e.category);
   }
 
-  // Sum high-payoff seconds per day
-  const byDate = {};
+  // Sum HP and LP seconds per day
+  const hpByDate = {}, lpByDate = {};
   entries.forEach(e => {
-    if (highPayoffCats.has(e.category)) {
-      byDate[e.date] = (byDate[e.date] || 0) + e.duration_secs;
+    if (entryIsHp(e)) {
+      hpByDate[e.date] = (hpByDate[e.date] || 0) + e.duration_secs;
+    } else {
+      lpByDate[e.date] = (lpByDate[e.date] || 0) + e.duration_secs;
     }
   });
 
@@ -2205,44 +2216,53 @@ function renderHighPayoff(entries, from, to) {
   // Same week-rollup rule as Daily Hours for ranges > 31 days
   let chartData;
   if (dates.length > 31) {
-    const byWeek = {};
+    const hpByWeek = {}, lpByWeek = {};
     dates.forEach(d => {
       const dt = stringToDate(d);
       const weekStart = addDays(dt, -dt.getDay());
       const wk = dateToString(weekStart);
-      byWeek[wk] = (byWeek[wk] || 0) + (byDate[d] || 0);
+      hpByWeek[wk] = (hpByWeek[wk] || 0) + (hpByDate[d] || 0);
+      lpByWeek[wk] = (lpByWeek[wk] || 0) + (lpByDate[d] || 0);
     });
-    chartData = Object.entries(byWeek).map(([k, v]) => ({ label: 'W ' + k.substring(5), secs: v }));
+    const weeks = [...new Set([...Object.keys(hpByWeek), ...Object.keys(lpByWeek)])].sort();
+    chartData = weeks.map(wk => ({ label: 'W ' + wk.substring(5), hp: hpByWeek[wk] || 0, lp: lpByWeek[wk] || 0 }));
   } else {
     chartData = dates.map(d => ({
       label: stringToDate(d).toLocaleDateString('en-GB', { weekday: 'short' }).substring(0, 3) +
              ' ' + d.substring(8),
-      secs: byDate[d] || 0
+      hp: hpByDate[d] || 0,
+      lp: lpByDate[d] || 0
     }));
   }
 
-  // Headline numbers
-  const totalSecs = chartData.reduce((s, x) => s + x.secs, 0);
-  const daysWithAny = chartData.filter(x => x.secs > 0).length;
-  const avgSecs = daysWithAny > 0 ? Math.round(totalSecs / daysWithAny) : 0;
+  // Headline numbers — HP total and avg
+  const totalHpSecs = chartData.reduce((s, x) => s + x.hp, 0);
+  const daysWithHp  = chartData.filter(x => x.hp > 0).length;
+  const avgHpSecs   = daysWithHp > 0 ? Math.round(totalHpSecs / daysWithHp) : 0;
   if (totalEl) {
-    totalEl.textContent = totalSecs > 0
-      ? `${formatHoursMins(totalSecs)} total · ${formatHoursMins(avgSecs)} / active day`
-      : '0m total';
+    totalEl.textContent = totalHpSecs > 0
+      ? `${formatHoursMins(totalHpSecs)} HP total · ${formatHoursMins(avgHpSecs)} / active day`
+      : '0m HP total';
   }
 
-  if (totalSecs === 0) {
-    container.innerHTML = '<div class="empty-state"><div>No high-payoff time logged in this range yet.</div></div>';
+  const chartMax = Math.max(1, ...chartData.map(x => x.hp + x.lp));
+  if (chartMax === 1 && chartData.every(x => x.hp === 0 && x.lp === 0)) {
+    container.innerHTML = '<div class="empty-state"><div>No time entries in this range yet.</div></div>';
     return;
   }
 
-  const chartMax = Math.max(1, ...chartData.map(x => x.secs));
   container.innerHTML = chartData.map(d => {
-    const heightPct = (d.secs / chartMax) * 100;
+    const total = d.hp + d.lp;
+    const totalPct = (total / chartMax) * 100;
+    const hpPct    = total > 0 ? (d.hp / total) * 100 : 0;
+    const lpPct    = 100 - hpPct;
     return `
       <div class="bar-column">
-        <div class="bar-fill" style="height:${heightPct}%;background:#10b981;">
-          ${d.secs > 0 ? `<div class="bar-value">${formatHoursMins(d.secs)}</div>` : ''}
+        <div class="bar-fill" style="height:${totalPct}%;display:flex;flex-direction:column;justify-content:flex-end;overflow:hidden;border-radius:3px 3px 0 0;">
+          ${d.hp > 0 ? `<div style="flex:0 0 ${hpPct}%;background:#10b981;display:flex;align-items:flex-start;justify-content:center;padding-top:2px;">
+            ${totalPct > 10 ? `<span class="bar-value" style="color:#fff;">${formatHoursMins(d.hp)}</span>` : ''}
+          </div>` : ''}
+          ${d.lp > 0 ? `<div style="flex:0 0 ${lpPct}%;background:#f87171;"></div>` : ''}
         </div>
         <div class="bar-label">${d.label}</div>
       </div>
@@ -5395,6 +5415,20 @@ const WHATS_NEW = {
     {
       title: "Got an idea? Tell us 💡",
       body: "There's now a <strong>Feature Requests</strong> box. Spotted something that would make DayTimer better? Head to <strong>Settings → Feature Requests</strong>, type your idea and hit <strong>Register request</strong> — it goes straight to the team, and you can track its status there."
+    }
+  ],
+  '5.6.6': [
+    {
+      title: "High Payoff / Low Payoff toggle 💎",
+      body: "There's now an <strong>HP / LP chip</strong> in the widget next to the Pause button. It defaults to whatever your selected category is set to, but you can flip it for any individual task. Your choice is saved with every entry."
+    },
+    {
+      title: "Stacked HP/LP chart on Insights",
+      body: "The High Payoff chart now shows a <strong>stacked column</strong> for each day — <span style='color:#10b981;font-weight:600;'>green for high-payoff</span> time and <span style='color:#f87171;font-weight:600;'>red for low-payoff</span>. At a glance you can see not just how much HP time you logged, but what proportion of your day it was."
+    },
+    {
+      title: "High payoff % in Summary",
+      body: "The Insights Summary now shows a <strong>💎 High payoff %</strong> — the share of your total tracked time that was high-payoff for the selected period."
     }
   ]
 };

@@ -2,6 +2,16 @@
 
 All notable changes to DayTimer.
 
+## [5.6.6] — 2026-06-10
+
+### Added
+- **HP/LP toggle on the widget** — a small HP/LP chip sits next to the Pause button. It defaults to whatever the selected category is set to (💎 High payoff on/off in Settings), but you can flip it for any individual task before hitting Next Task. The value is stored with each time entry.
+- **High payoff % in Insights Summary** — new stat card showing what percentage of your tracked time this period was high payoff (💎 green).
+- MS calendar events with a category now count in Plan vs Actual on both the Stats page and Manager Dashboard.
+
+### Changed
+- **High Payoff chart is now a stacked LP/HP bar** — each column shows your total tracked time; the green segment is high-payoff, the red segment is low-payoff. Makes it easy to see the balance at a glance. Legacy entries (logged before this version) fall back to their category's HP setting.
+
 ## [5.6.2] — 2026-05-20
 
 ### Fixed

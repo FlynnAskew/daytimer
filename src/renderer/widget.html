@@ -144,6 +144,24 @@ body {
 .pause-btn.active { border-color: #fbbf24; color: #fbbf24; }
 .pause-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
+.hp-toggle {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition: all 0.15s;
+  min-width: 32px;
+}
+.hp-toggle.hp { border-color: #10b981; color: #10b981; background: rgba(16,185,129,0.1); }
+.hp-toggle.lp { border-color: #f87171; color: #f87171; background: rgba(248,113,113,0.08); }
+.hp-toggle:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .task-input,
 .category-select {
   width: 100%;
@@ -355,7 +373,10 @@ body {
     <div class="body" id="widgetBody">
       <div class="timer-row">
         <div class="timer" id="timerDisplay">00:00:00</div>
-        <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
+        <div style="display:flex;gap:6px;align-items:center;-webkit-app-region:no-drag;">
+          <button class="hp-toggle lp" id="hpToggle" disabled title="Toggle High/Low Payoff for this task">LP</button>
+          <button class="pause-btn" id="pauseBtn" disabled>Pause</button>
+        </div>
       </div>
 
       <input
@@ -509,6 +530,7 @@ body {
     const categorySelect = document.getElementById('categorySelect');
     const nextBtn = document.getElementById('nextBtn');
     const pauseBtn = document.getElementById('pauseBtn');
+    const hpToggle = document.getElementById('hpToggle');
     const minimiseBtn = document.getElementById('minimiseBtn');
     const openMainBtn = document.getElementById('openMainBtn');
     const statusDot = document.getElementById('statusDot');
@@ -527,6 +549,7 @@ body {
     let quickActions = [];         // loaded from main process
     let _streakHidden = false;     // pref from widget prefs
     let _neonPref = null;          // neon outline config
+    let isTaskHighPayoff = false;   // HP/LP toggle state for current task
     let idleWarningShown = false;  // 5-min warning before auto-end
     let isMinimised = false;
     let dayStarted = false;
@@ -723,12 +746,14 @@ body {
           ended_at:   endTime.toISOString(),
           duration_secs: seconds,
           date: localDateString(startTime),
-          entry_type: 'task'
+          entry_type: 'task',
+          is_high_payoff: isTaskHighPayoff
         };
         if (dbReady) {
           try { await dbClient.from('time_entries').insert([withUid(entry)]); } catch (e) { console.error(e); }
         }
       }
+      resetHpToggle(); // quick actions are LP by default
 
       // Set up this action as the next entry to log
       pendingEntryType = action.entryType || 'quick_action';
@@ -862,6 +887,30 @@ body {
     loadCategories();
     ipcRenderer.on('refresh-categories', () => loadCategories());
 
+    // ── HP/LP toggle ──────────────────────────────────────────
+    function updateHpToggleFromCategory() {
+      const catName = categorySelect.value;
+      const cat = (window._cachedCategories || []).find(c => c.name === catName);
+      isTaskHighPayoff = cat ? !!cat.is_high_payoff : false;
+      renderHpToggle();
+    }
+
+    function renderHpToggle() {
+      hpToggle.textContent = isTaskHighPayoff ? 'HP' : 'LP';
+      hpToggle.className = 'hp-toggle ' + (isTaskHighPayoff ? 'hp' : 'lp');
+    }
+
+    function resetHpToggle() {
+      isTaskHighPayoff = false;
+      renderHpToggle();
+    }
+
+    hpToggle.addEventListener('click', () => {
+      if (!dayStarted || isPaused) return;
+      isTaskHighPayoff = !isTaskHighPayoff;
+      renderHpToggle();
+    });
+
     // ── Connection status ─────────────────────────────────────
     // The Supabase setup is async (it pulls the session from the main
     // process via IPC), so dbReady may still be false at this point.
@@ -922,6 +971,7 @@ body {
       nextBtn.classList.add('start-day');
       nextBtn.classList.remove('end-day');
       pauseBtn.disabled = true;
+      hpToggle.disabled = true;
       taskInput.disabled = true;
       categorySelect.disabled = true;
       timerDisplay.textContent = '00:00:00';
@@ -934,6 +984,7 @@ body {
       nextBtn.textContent = 'Next Task →';
       nextBtn.classList.remove('start-day', 'end-day');
       pauseBtn.disabled = false;
+      hpToggle.disabled = false;
       taskInput.disabled = false;
       categorySelect.disabled = false;
       startTime = new Date();
@@ -1531,7 +1582,8 @@ body {
         ended_at: endTime.toISOString(),
         duration_secs: duration,
         date: localDateString(startTime),
-        entry_type: entryType
+        entry_type: entryType,
+        is_high_payoff: isTaskHighPayoff
       };
 
       widgetBody.classList.add('clearing');
@@ -1540,6 +1592,7 @@ body {
       // Reset UI immediately
       taskInput.value = '';
       categorySelect.value = '';
+      resetHpToggle();
       resetTimer();
 
       // If returning from ANY quick-action (phone / break / disturbance / custom),
@@ -1555,6 +1608,7 @@ body {
         nextBtn.textContent = 'Next Task →';
         nextBtn.classList.remove('end-day');
         updateStatusDotColour();
+        updateHpToggleFromCategory();
       }
 
       taskInput.focus();
@@ -1651,6 +1705,7 @@ body {
     categorySelect.addEventListener('change', () => {
       scheduleUpcomingUpdate();
       updateStatusDotColour();
+      updateHpToggleFromCategory();
       try {
         if (window.dtTroop && dayStarted && !isPaused) {
           window.dtTroop.update({ category: categorySelect.value || null });
