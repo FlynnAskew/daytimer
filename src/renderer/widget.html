@@ -913,7 +913,7 @@ body {
       if (dbReady) {
         try {
           const { data, error } = await dbClient.from('categories')
-            .select('name, colour').order('sort_order', { ascending: true });
+            .select('name, colour, is_high_payoff').order('sort_order', { ascending: true });
           if (!error && data && data.length > 0) {
             cats = data.map(c => c.name);
             catsWithColour = data;

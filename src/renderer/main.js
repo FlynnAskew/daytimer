@@ -2617,14 +2617,13 @@ async function loadQuickActionsSettings() {
   let actions = [];
   try { actions = await ipcRenderer.invoke('get-quick-actions'); } catch (e) {}
 
-  // Build the available categories list for the dropdowns
-  let catNames = ['(no category)'];
-  try {
-    const { data } = await dbClient.from('categories').select('name').order('sort_order', { ascending: true });
-    if (data && data.length) catNames = ['(no category)', ...data.map(c => c.name)];
-  } catch (e) {}
-
-  function renderActionList() {
+  async function renderActionList() {
+    // Re-fetch categories every render so the list is always current
+    let catNames = ['(no category)'];
+    try {
+      const { data } = await dbClient.from('categories').select('name').order('sort_order', { ascending: true });
+      if (data && data.length) catNames = ['(no category)', ...data.map(c => c.name)];
+    } catch (e) {}
     list.innerHTML = '';
     actions.forEach((action, idx) => {
       const row = document.createElement('div');
