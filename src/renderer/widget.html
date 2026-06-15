@@ -448,6 +448,18 @@ body {
 
   </div>
 
+  <!-- Cross-device tracking conflict dialog -->
+  <div id="crossDeviceDialog" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);border-radius:16px;z-index:51;align-items:center;justify-content:center;padding:20px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:100%;">
+      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">📱 Tracking on another device</div>
+      <div style="font-size:11px;color:var(--text-dim);margin-bottom:16px;">Another device has started tracking. Stop tracking here?</div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="pause-btn" id="crossDeviceKeepBtn">Keep going</button>
+        <button class="pause-btn" id="crossDeviceStopBtn" style="border-color:#f87171;color:#f87171;">Stop tracking</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Close confirmation overlay -->
   <div id="closeConfirm" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);border-radius:16px;z-index:50;display:none;align-items:center;justify-content:center;padding:20px;">
     <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:100%;">
@@ -516,6 +528,11 @@ body {
         window.currentUserId = currentUserId;
         console.log('Widget: signed in as', session.user.email, 'uid:', currentUserId);
 
+        // Cross-device tracking detection — subscribe after auth is ready
+        // (subscribeCrossDevice is defined later in the script but called
+        //  asynchronously after this IIFE resolves, so it's available)
+        setTimeout(subscribeCrossDevice, 0);
+
         // Listen for refreshed tokens from the main process
         ipcRenderer.on('session-refreshed', async (_evt, fresh) => {
           try {
@@ -561,6 +578,12 @@ body {
       return row;
     }
 
+    // Helper: record timestamp so Realtime echo can be ignored, then insert
+    function insertEntry(rows) {
+      lastLocalInsertAt = Date.now();
+      return insertEntry(rows);
+    }
+
     // ── DOM refs ──────────────────────────────────────────────
     const widget = document.getElementById('widget');
     const widgetBody = document.getElementById('widgetBody');
@@ -592,6 +615,7 @@ body {
     let _streakHidden = false;     // pref from widget prefs
     let _neonPref = null;          // neon outline config
     let isTaskHighPayoff = false;   // HP/LP toggle state for current task
+    let lastLocalInsertAt = 0;     // epoch ms of most recent local time_entries insert
     let idleWarningShown = false;  // 5-min warning before auto-end
     let isMinimised = false;
     let dayStarted = false;
@@ -792,7 +816,7 @@ body {
           is_high_payoff: isTaskHighPayoff
         };
         if (dbReady) {
-          try { await dbClient.from('time_entries').insert([withUid(entry)]); } catch (e) { console.error(e); }
+          try { await insertEntry([withUid(entry)]); } catch (e) { console.error(e); }
         }
       }
       resetHpToggle(); // quick actions are LP by default
@@ -929,6 +953,125 @@ body {
     }
     loadCategories();
     ipcRenderer.on('refresh-categories', () => loadCategories());
+
+    // ── Cross-device tracking detection ──────────────────────
+    let crossDeviceChannel = null;
+
+    function isTrackingActive() {
+      return dayStarted; // true from Start Day until End Day resets it
+    }
+
+    function showCrossDeviceDialog() {
+      const dlg = document.getElementById('crossDeviceDialog');
+      if (!dlg) return;
+      dlg.style.display = 'flex';
+    }
+
+    function hideCrossDeviceDialog() {
+      const dlg = document.getElementById('crossDeviceDialog');
+      if (dlg) dlg.style.display = 'none';
+    }
+
+    // Stop tracking on this device without logging a day_end marker —
+    // the other device is continuing the same session.
+    async function stopTrackingForCrossDevice() {
+      const now = new Date();
+
+      if (isPaused && pauseBlockStartTime) {
+        const pauseDuration = (now - pauseBlockStartTime) / 1000;
+        if (pauseDuration >= 30) {
+          try {
+            await insertEntry([withUid({
+              task_name: 'Paused',
+              category: null,
+              started_at: pauseBlockStartTime.toISOString(),
+              ended_at: now.toISOString(),
+              duration_secs: Math.round(pauseDuration),
+              date: todayStr(),
+              entry_type: 'paused'
+            })]);
+          } catch (e) { console.error(e); }
+        }
+      } else if (!isPaused && startTime && taskInput.value.trim()) {
+        const task = taskInput.value.trim();
+        const duration = Math.max(0, Math.floor((now - startTime - pausedAccumulated) / 1000));
+        try {
+          await insertEntry([withUid({
+            task_name: task,
+            category: categorySelect.value || null,
+            started_at: startTime.toISOString(),
+            ended_at: now.toISOString(),
+            duration_secs: duration,
+            date: localDateString(startTime),
+            entry_type: 'task',
+            is_high_payoff: isTaskHighPayoff
+          })]);
+        } catch (e) { console.error(e); }
+      }
+
+      // Reset to idle (no day_end marker — other device owns the session)
+      try { if (window.dtTroop) window.dtTroop.stop(); } catch (e) {}
+      dayStarted = false;
+      isPaused = false;
+      pauseBlockStartTime = null;
+      pauseStartedAt = null;
+      pausedAccumulated = 0;
+      seconds = 0;
+      pendingEntryType = 'task';
+      previousTask = null;
+      dismissedUpcomingIds = new Set();
+      taskInput.value = '';
+      categorySelect.value = '';
+      resetHpToggle();
+      timerDisplay.textContent = '00:00:00';
+      timerDisplay.classList.remove('paused');
+      statusDot.classList.remove('paused');
+      statusDot.style.background = '';
+      statusDot.style.boxShadow  = '';
+      pauseBtn.textContent = 'Pause';
+      pauseBtn.classList.remove('active');
+      setStartDayMode();
+      upcomingPanel.classList.remove('visible');
+      statusRow.textContent = 'Tracking moved to another device';
+      statusRow.className = 'status-row';
+      setTimeout(() => { statusRow.textContent = ''; statusRow.className = 'status-row'; }, 4000);
+    }
+
+    function handleRemoteInsert(payload) {
+      if (Date.now() - lastLocalInsertAt < 4000) return; // echo of our own insert
+      if (!isTrackingActive()) return;
+      const entryType = payload.new?.entry_type;
+      if (entryType === 'day_start' || entryType === 'task' || entryType === 'paused') {
+        showCrossDeviceDialog();
+      }
+    }
+
+    function subscribeCrossDevice() {
+      if (!dbClient || !currentUserId) return;
+      crossDeviceChannel = dbClient.channel('cross-device')
+        .on('postgres_changes', {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'time_entries',
+          filter: `user_id=eq.${currentUserId}`
+        }, handleRemoteInsert)
+        .subscribe();
+    }
+
+    function unsubscribeCrossDevice() {
+      if (crossDeviceChannel) {
+        try { dbClient.removeChannel(crossDeviceChannel); } catch (e) {}
+        crossDeviceChannel = null;
+      }
+    }
+
+    document.getElementById('crossDeviceStopBtn').addEventListener('click', async () => {
+      hideCrossDeviceDialog();
+      await stopTrackingForCrossDevice();
+    });
+    document.getElementById('crossDeviceKeepBtn').addEventListener('click', () => {
+      hideCrossDeviceDialog();
+    });
 
     // ── HP/LP toggle ──────────────────────────────────────────
     function updateHpToggleFromCategory() {
@@ -1328,7 +1471,7 @@ body {
 
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([withUid({
+          await insertEntry([withUid({
             task_name: 'Paused',
             category: null,
             started_at: pauseBlockStartTime.toISOString(),
@@ -1474,7 +1617,7 @@ body {
       const now = new Date();
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([withUid({
+          await insertEntry([withUid({
             task_name: 'Day started',
             category: null,
             started_at: now.toISOString(),
@@ -1530,7 +1673,7 @@ body {
 
       if (shouldLogPaused) {
         try {
-          await dbClient.from('time_entries').insert([withUid({
+          await insertEntry([withUid({
             task_name: 'Paused',
             category: null,
             started_at: pauseBlock.toISOString(),
@@ -1545,7 +1688,7 @@ body {
       // Log the day end
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([withUid({
+          await insertEntry([withUid({
             task_name: isIdle ? 'Day auto-ended (idle)' : 'Day ended',
             category: null,
             started_at: now.toISOString(),
@@ -1672,7 +1815,7 @@ body {
 
       if (dbReady) {
         try {
-          const { error } = await dbClient.from('time_entries').insert([withUid(entry)]);
+          const { error } = await insertEntry([withUid(entry)]);
           if (error) {
             statusRow.textContent = '⚠ Save failed';
             statusRow.className = 'status-row error';
@@ -1837,7 +1980,7 @@ body {
       };
       if (dbReady) {
         try {
-          await dbClient.from('time_entries').insert([withUid(entry)]);
+          await insertEntry([withUid(entry)]);
         } catch (e) { console.error('Task log failed', e); }
       }
     }
