@@ -38,6 +38,14 @@
       <span class="tooltip">To-Do</span>
     </button>
 
+    <button class="nav-btn" data-page="templates">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/>
+        <rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+      </svg>
+      <span class="tooltip">Templates</span>
+    </button>
+
     <button class="nav-btn" data-page="insights">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
@@ -176,6 +184,7 @@
             <input type="checkbox" id="extendedHoursToggle" style="cursor:pointer;">
             <span>Extended hours</span>
           </label>
+          <button class="mini-btn" id="loadTemplateBtn" style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);">📋 Load template</button>
         </div>
 
         <!-- All-day events strip (only shown if there are all-day events) -->
@@ -263,6 +272,35 @@
 
             <div id="msTodoError" class="settings-section" style="display:none;">
               <div class="empty-state" style="padding:30px;color:var(--danger);"><div id="msTodoErrorText">⚠ Could not load tasks</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─── TEMPLATES PAGE ─── -->
+    <div class="page" id="page-templates">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Templates</div>
+          <div class="page-subtitle">Build reusable day and week plans</div>
+        </div>
+        <div class="date-nav">
+          <button class="modal-btn primary" id="newTemplateBtn">+ New template</button>
+        </div>
+      </div>
+      <div class="templates-body">
+        <div class="templates-split">
+          <div class="templates-list-col" id="templatesList">
+            <div class="empty-state" style="padding:40px 16px;text-align:center;">
+              <div style="font-size:32px;margin-bottom:8px;">📋</div>
+              <div>No templates yet.</div>
+            </div>
+          </div>
+          <div class="templates-editor-col" id="templatesEditor">
+            <div class="empty-state" style="padding:60px 20px;text-align:center;">
+              <div style="font-size:32px;margin-bottom:8px;">📋</div>
+              <div>Select a template to edit, or create a new one.</div>
             </div>
           </div>
         </div>

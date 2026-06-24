@@ -2,6 +2,13 @@
 
 All notable changes to DayTimer.
 
+## [5.6.8] — 2026-06-24
+
+### Added
+- **Templates** — new sidebar tab for building reusable day and week plans. Create named templates, add time slots (task name, category, high-priority flag), and switch between Day (single column) and Week (Mon–Fri) layouts. All changes auto-save.
+- **Load template** button in the Day Plan header — pick a saved template and choose Merge (add on top of existing plan) or Replace (clear first). Week templates fill the whole Mon–Fri week from whatever date you're viewing.
+- `supabase-v5.6.7.sql`: new `plan_templates` and `plan_template_items` tables with RLS.
+
 ## [5.6.6] — 2026-06-10
 
 ### Added

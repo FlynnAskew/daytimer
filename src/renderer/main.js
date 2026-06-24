@@ -315,11 +315,12 @@ function navigateTo(pageName) {
     }
     loadPlanner();
   }
-  if (pageName === 'todos')    loadTodos();
-  if (pageName === 'insights') loadInsights();
-  if (pageName === 'stats')    loadStats();
-  if (pageName === 'manager')  loadManager();
-  if (pageName === 'settings') loadSettings();
+  if (pageName === 'todos')     loadTodos();
+  if (pageName === 'templates') loadTemplates();
+  if (pageName === 'insights')  loadInsights();
+  if (pageName === 'stats')     loadStats();
+  if (pageName === 'manager')   loadManager();
+  if (pageName === 'settings')  loadSettings();
 }
 
 document.querySelectorAll('.nav-btn[data-page]').forEach(btn => {
@@ -5574,6 +5575,371 @@ async function maybeShowWeekSummary() {
     console.error('week summary failed', e);
   }
 }
+
+// ═══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
+//  TEMPLATES PAGE
+// ═══════════════════════════════════════════════════════════
+
+let activeTemplateId = null;
+
+async function loadTemplates() {
+  if (!dbReady) return;
+
+  // Wire "+ New template" button once
+  const newBtn = $('newTemplateBtn');
+  if (newBtn && !newBtn.dataset.wired) {
+    newBtn.dataset.wired = 'true';
+    newBtn.addEventListener('click', async () => {
+      const { data: tpl, error } = await dbClient
+        .from('plan_templates')
+        .insert([{ user_id: currentUserId, name: 'New template', type: 'day' }])
+        .select()
+        .single();
+      if (!error && tpl) { activeTemplateId = tpl.id; }
+      loadTemplates();
+    });
+  }
+
+  const { data: templates } = await dbClient
+    .from('plan_templates')
+    .select('*')
+    .eq('user_id', currentUserId)
+    .order('created_at', { ascending: false });
+
+  renderTemplateList(templates || []);
+
+  if (activeTemplateId) {
+    const found = (templates || []).find(t => t.id === activeTemplateId);
+    if (found) await renderTemplateEditor(found);
+  }
+}
+
+function renderTemplateList(templates) {
+  const list = $('templatesList');
+  if (!list) return;
+
+  if (templates.length === 0) {
+    list.innerHTML = `<div class="empty-state" style="padding:40px 16px;text-align:center;">
+      <div style="font-size:32px;margin-bottom:8px;">📋</div>
+      <div style="color:var(--text-dim);">No templates yet.<br>Click <strong>+ New template</strong> to start.</div>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = templates.map(t => `
+    <div class="template-card ${t.id === activeTemplateId ? 'active' : ''}" data-id="${t.id}">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span class="tpl-type-badge ${t.type}">${t.type === 'day' ? '☀️ Day' : '📅 Week'}</span>
+        <span style="font-weight:600;font-size:13px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(t.name)}</span>
+      </div>
+      <div style="display:flex;justify-content:flex-end;">
+        <button class="mini-btn danger tpl-delete" data-id="${t.id}" style="font-size:11px;">Delete</button>
+      </div>
+    </div>
+  `).join('');
+
+  list.querySelectorAll('.template-card').forEach(card => {
+    card.addEventListener('click', async e => {
+      if (e.target.closest('.tpl-delete')) return;
+      activeTemplateId = card.dataset.id;
+      list.querySelectorAll('.template-card').forEach(c =>
+        c.classList.toggle('active', c.dataset.id === activeTemplateId));
+      const tpl = templates.find(t => t.id === activeTemplateId);
+      if (tpl) await renderTemplateEditor(tpl);
+    });
+  });
+
+  list.querySelectorAll('.tpl-delete').forEach(btn => {
+    btn.addEventListener('click', async e => {
+      e.stopPropagation();
+      if (!confirm('Delete this template? This cannot be undone.')) return;
+      await dbClient.from('plan_templates').delete().eq('id', btn.dataset.id);
+      if (activeTemplateId === btn.dataset.id) {
+        activeTemplateId = null;
+        const ed = $('templatesEditor');
+        if (ed) ed.innerHTML = `<div class="empty-state" style="padding:60px 20px;text-align:center;">
+          <div style="font-size:32px;margin-bottom:8px;">📋</div>
+          <div>Select a template to edit, or create a new one.</div>
+        </div>`;
+      }
+      loadTemplates();
+    });
+  });
+}
+
+async function renderTemplateEditor(tpl) {
+  const editor = $('templatesEditor');
+  if (!editor) return;
+
+  const { data: items } = await dbClient
+    .from('plan_template_items')
+    .select('*')
+    .eq('template_id', tpl.id)
+    .order('day_of_week', { ascending: true, nullsFirst: true })
+    .order('planned_start', { ascending: true });
+
+  const allItems = items || [];
+  const isWeek = tpl.type === 'week';
+  const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+
+  const catOptions = (state.categories || [])
+    .map(c => `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`)
+    .join('');
+
+  function itemRow(item) {
+    const dayCol = isWeek
+      ? `<select class="field-input tpl-item-day" data-id="${item.id}" style="font-size:11px;">
+          ${DAY_NAMES.map((d, i) => `<option value="${i}"${item.day_of_week === i ? ' selected' : ''}>${d}</option>`).join('')}
+        </select>`
+      : '';
+    return `<div class="tpl-item-row ${isWeek ? 'has-day' : ''}" data-id="${item.id}">
+      ${dayCol}
+      <input type="text" class="field-input tpl-item-start" data-id="${item.id}" value="${escapeHtml(item.planned_start)}" placeholder="09:00" style="font-size:12px;font-family:'DM Mono',monospace;text-align:center;">
+      <input type="text" class="field-input tpl-item-end"   data-id="${item.id}" value="${escapeHtml(item.planned_end)}"   placeholder="10:00" style="font-size:12px;font-family:'DM Mono',monospace;text-align:center;">
+      <input type="text" class="field-input tpl-item-task"  data-id="${item.id}" value="${escapeHtml(item.task_name)}" placeholder="Task name" style="font-size:12px;">
+      <select class="field-input tpl-item-cat" data-id="${item.id}" style="font-size:11px;">
+        <option value="">— No category —</option>${catOptions}
+      </select>
+      <label style="display:flex;align-items:center;justify-content:center;cursor:pointer;" title="High priority">
+        <input type="checkbox" class="tpl-item-priority" data-id="${item.id}"${item.is_high_priority ? ' checked' : ''}> 🚩
+      </label>
+      <button class="mini-btn danger tpl-item-del" data-id="${item.id}" style="font-size:14px;padding:0 4px;">✕</button>
+    </div>`;
+  }
+
+  const colHeadersClass = isWeek ? 'week-tpl' : 'day-tpl';
+  const colHeaders = `<div class="tpl-col-headers ${colHeadersClass}" style="margin-bottom:4px;">
+    ${isWeek ? '<div>Day</div>' : ''}
+    <div>Start</div><div>End</div><div>Task</div><div>Category</div><div></div><div></div>
+  </div>`;
+
+  let slotsHtml;
+  if (isWeek) {
+    slotsHtml = DAY_NAMES.map((day, i) => {
+      const dayItems = allItems.filter(item => item.day_of_week === i);
+      return `<div class="tpl-day-group">
+        <div class="tpl-day-header">${day}</div>
+        ${dayItems.map(itemRow).join('')}
+        <button class="mini-btn tpl-add-item" data-dow="${i}">+ Add slot</button>
+      </div>`;
+    }).join('');
+  } else {
+    slotsHtml = allItems.map(itemRow).join('') +
+      `<button class="mini-btn tpl-add-item" data-dow="" style="margin-top:8px;">+ Add slot</button>`;
+  }
+
+  editor.innerHTML = `
+    <div class="settings-section">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <input type="text" class="field-input" id="tplNameInput" value="${escapeHtml(tpl.name)}"
+          placeholder="Template name" style="flex:1;min-width:160px;font-size:14px;font-weight:600;">
+        <div class="view-tabs" style="flex-shrink:0;">
+          <button class="view-tab${tpl.type === 'day' ? ' active' : ''}" data-type="day">☀️ Day</button>
+          <button class="view-tab${tpl.type === 'week' ? ' active' : ''}" data-type="week">📅 Week</button>
+        </div>
+      </div>
+    </div>
+    <div class="settings-section" style="flex:1;">
+      <div class="section-title" style="margin-bottom:10px;">
+        ${isWeek ? 'Time slots — Mon to Fri' : 'Time slots'}
+      </div>
+      ${!isWeek ? colHeaders : ''}
+      <div id="tplItemsContainer">${slotsHtml}</div>
+    </div>`;
+
+  // Set category select values (can't do in innerHTML)
+  editor.querySelectorAll('.tpl-item-cat').forEach(sel => {
+    const item = allItems.find(i => i.id === sel.dataset.id);
+    if (item?.category) sel.value = item.category;
+  });
+
+  // Auto-save helpers
+  const save = (field, getValue) => async el => {
+    await dbClient.from('plan_template_items')
+      .update({ [field]: getValue(el) }).eq('id', el.dataset.id);
+  };
+  const bindBlur   = (sel, field, fn = el => el.value) =>
+    editor.querySelectorAll(sel).forEach(el => el.addEventListener('blur',   save(field, fn)));
+  const bindChange = (sel, field, fn = el => el.value) =>
+    editor.querySelectorAll(sel).forEach(el => el.addEventListener('change', save(field, fn)));
+
+  bindBlur  ('.tpl-item-start',    'planned_start');
+  bindBlur  ('.tpl-item-end',      'planned_end');
+  bindBlur  ('.tpl-item-task',     'task_name');
+  bindChange('.tpl-item-cat',      'category');
+  bindChange('.tpl-item-day',      'day_of_week', el => parseInt(el.value));
+  bindChange('.tpl-item-priority', 'is_high_priority', el => el.checked);
+
+  // Delete item
+  editor.querySelectorAll('.tpl-item-del').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      await dbClient.from('plan_template_items').delete().eq('id', btn.dataset.id);
+      renderTemplateEditor(tpl);
+    }));
+
+  // Add slot
+  editor.querySelectorAll('.tpl-add-item').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      const dow = btn.dataset.dow === '' ? null : parseInt(btn.dataset.dow);
+      const siblings = allItems
+        .filter(i => isWeek ? i.day_of_week === dow : true)
+        .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
+      const lastEnd = siblings.length ? siblings[siblings.length - 1].planned_end : '09:00';
+      const [h, m] = lastEnd.split(':').map(Number);
+      const newEnd = String(Math.min(h + 1, 20)).padStart(2, '0') + ':' + String(m).padStart(2, '0');
+      await dbClient.from('plan_template_items').insert([{
+        template_id: tpl.id,
+        day_of_week: dow,
+        planned_start: lastEnd,
+        planned_end: newEnd,
+        task_name: '',
+        category: null,
+        is_high_priority: false
+      }]);
+      renderTemplateEditor(tpl);
+    }));
+
+  // Template name auto-save
+  const nameInput = $('tplNameInput');
+  if (nameInput) {
+    nameInput.addEventListener('blur', async () => {
+      const n = nameInput.value.trim();
+      if (!n) return;
+      await dbClient.from('plan_templates').update({ name: n }).eq('id', tpl.id);
+      loadTemplates();
+    });
+  }
+
+  // Type switch (Day ↔ Week)
+  editor.querySelectorAll('[data-type]').forEach(btn =>
+    btn.addEventListener('click', async () => {
+      const newType = btn.dataset.type;
+      if (newType === tpl.type) return;
+      await dbClient.from('plan_templates').update({ type: newType }).eq('id', tpl.id);
+      if (newType === 'week') {
+        // Give all null-dow items Monday
+        await dbClient.from('plan_template_items')
+          .update({ day_of_week: 0 }).eq('template_id', tpl.id).is('day_of_week', null);
+      } else {
+        // Strip day assignments
+        await dbClient.from('plan_template_items')
+          .update({ day_of_week: null }).eq('template_id', tpl.id);
+      }
+      loadTemplates();
+    }));
+}
+
+// ── Apply template to the current planner date ───────────
+async function applyTemplateToPlan(templateId, merge) {
+  const { data: tpl } = await dbClient
+    .from('plan_templates').select('*').eq('id', templateId).single();
+  if (!tpl) return;
+
+  const { data: items } = await dbClient
+    .from('plan_template_items').select('*').eq('template_id', templateId);
+  if (!items?.length) {
+    openModal(`<div class="modal-title">Nothing to import</div>
+      <div style="color:var(--text-dim);font-size:13px;">This template has no time slots yet.</div>
+      <div class="modal-footer"><button class="modal-btn" onclick="closeModal()">OK</button></div>`);
+    return;
+  }
+
+  const base = state.plannerDate;
+  // Monday of the week containing base
+  const dow0 = base.getDay(); // 0=Sun
+  const monday = new Date(base);
+  monday.setDate(base.getDate() + (dow0 === 0 ? -6 : 1 - dow0));
+
+  const rows = items.map(item => {
+    let targetDate;
+    if (tpl.type === 'week') {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + (item.day_of_week ?? 0));
+      targetDate = dateToString(d);
+    } else {
+      targetDate = dateToString(base);
+    }
+    return {
+      user_id: currentUserId,
+      date: targetDate,
+      task_name: item.task_name || 'Task',
+      category: item.category || null,
+      planned_start: item.planned_start,
+      planned_end: item.planned_end,
+      is_high_priority: item.is_high_priority || false,
+      source_todo_id: null
+    };
+  });
+
+  if (!merge) {
+    const dates = [...new Set(rows.map(r => r.date))];
+    for (const date of dates) {
+      await dbClient.from('day_plans')
+        .delete().eq('user_id', currentUserId).eq('date', date);
+    }
+  }
+
+  await dbClient.from('day_plans').insert(rows);
+  closeModal();
+  loadPlanner();
+}
+
+// ── "Load template" button in planner header ─────────────
+(function wireLoadTemplateBtn() {
+  const btn = $('loadTemplateBtn');
+  if (!btn) return;
+  btn.addEventListener('click', async () => {
+    if (!dbReady) return;
+    const { data: templates } = await dbClient
+      .from('plan_templates').select('*').eq('user_id', currentUserId)
+      .order('created_at', { ascending: false });
+
+    if (!templates?.length) {
+      openModal(`<div class="modal-title">No templates yet</div>
+        <div style="color:var(--text-dim);font-size:13px;margin-bottom:16px;">
+          Head to <strong>Templates</strong> in the sidebar to create your first template.</div>
+        <div class="modal-footer"><button class="modal-btn" onclick="closeModal()">OK</button></div>`);
+      return;
+    }
+
+    const options = templates.map((t, i) =>
+      `<label style="display:flex;align-items:center;gap:10px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;cursor:pointer;margin-bottom:6px;">
+        <input type="radio" name="tplPick" value="${t.id}"${i === 0 ? ' checked' : ''}>
+        <span class="tpl-type-badge ${t.type}" style="flex-shrink:0;">${t.type === 'day' ? '☀️ Day' : '📅 Week'}</span>
+        <span style="font-size:13px;font-weight:500;">${escapeHtml(t.name)}</span>
+      </label>`).join('');
+
+    openModal(`
+      <div class="modal-title">Load template</div>
+      <div style="margin-bottom:14px;">${options}</div>
+      <div style="margin-bottom:16px;padding:10px 12px;background:var(--surface2);border-radius:8px;border:1px solid var(--border);">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin-bottom:6px;">
+          <input type="radio" name="tplMode" value="merge" checked>
+          <div><div style="font-size:12px;font-weight:600;">Merge</div>
+               <div style="font-size:11px;color:var(--text-dim);">Add template slots on top of existing plan</div></div>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="radio" name="tplMode" value="replace">
+          <div><div style="font-size:12px;font-weight:600;">Replace</div>
+               <div style="font-size:11px;color:var(--text-dim);">Clear existing plan first, then apply template</div></div>
+        </label>
+      </div>
+      <div class="modal-footer">
+        <button class="modal-btn" onclick="closeModal()">Cancel</button>
+        <button class="modal-btn primary" id="applyTemplateConfirm">Apply</button>
+      </div>`);
+
+    const applyBtn = document.getElementById('applyTemplateConfirm');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', () => {
+        const templateId = document.querySelector('input[name="tplPick"]:checked')?.value;
+        const merge = document.querySelector('input[name="tplMode"]:checked')?.value === 'merge';
+        if (templateId) applyTemplateToPlan(templateId, merge);
+      });
+    }
+  });
+})();
 
 // ═══════════════════════════════════════════════════════════
 //  BOOT
