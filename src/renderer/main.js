@@ -5771,21 +5771,57 @@ async function renderTemplateEditor(tpl) {
   bindChange('.tpl-item-day',      'day_of_week', el => parseInt(el.value));
   bindChange('.tpl-item-priority', 'is_high_priority', el => el.checked);
 
-  // Delete item
+  // Delete item — flush other rows first so their edits survive the re-render
   editor.querySelectorAll('.tpl-item-del').forEach(btn =>
     btn.addEventListener('click', async () => {
+      await flushEditorItems();
       await dbClient.from('plan_template_items').delete().eq('id', btn.dataset.id);
       renderTemplateEditor(tpl);
     }));
+
+  // Flush all visible field values to DB before re-rendering,
+  // so in-progress edits aren't lost when the editor rebuilds.
+  async function flushEditorItems() {
+    const rows = editor.querySelectorAll('.tpl-item-row[data-id]');
+    await Promise.all([...rows].map(row => {
+      const id       = row.dataset.id;
+      const startEl  = row.querySelector('.tpl-item-start');
+      const endEl    = row.querySelector('.tpl-item-end');
+      const taskEl   = row.querySelector('.tpl-item-task');
+      const catEl    = row.querySelector('.tpl-item-cat');
+      const priEl    = row.querySelector('.tpl-item-priority');
+      const dayEl    = row.querySelector('.tpl-item-day');
+      const update   = {};
+      if (startEl) update.planned_start    = startEl.value;
+      if (endEl)   update.planned_end      = endEl.value;
+      if (taskEl)  update.task_name        = taskEl.value;
+      if (catEl)   update.category         = catEl.value || null;
+      if (priEl)   update.is_high_priority = priEl.checked;
+      if (dayEl)   update.day_of_week      = parseInt(dayEl.value);
+      return dbClient.from('plan_template_items').update(update).eq('id', id);
+    }));
+  }
 
   // Add slot
   editor.querySelectorAll('.tpl-add-item').forEach(btn =>
     btn.addEventListener('click', async () => {
       const dow = btn.dataset.dow === '' ? null : parseInt(btn.dataset.dow);
-      const siblings = allItems
-        .filter(i => isWeek ? i.day_of_week === dow : true)
-        .sort((a, b) => a.planned_start.localeCompare(b.planned_start));
-      const lastEnd = siblings.length ? siblings[siblings.length - 1].planned_end : '09:00';
+
+      // Save whatever is currently typed before we re-render
+      await flushEditorItems();
+
+      // Read last end time from the live DOM (covers unsaved edits)
+      let lastEnd = '07:00';
+      if (isWeek) {
+        // Find the day group this button belongs to and look at its end inputs
+        const group = btn.closest('.tpl-day-group');
+        const endInputs = group ? [...group.querySelectorAll('.tpl-item-end')] : [];
+        if (endInputs.length) lastEnd = endInputs[endInputs.length - 1].value || '07:00';
+      } else {
+        const endInputs = [...editor.querySelectorAll('.tpl-item-end')];
+        if (endInputs.length) lastEnd = endInputs[endInputs.length - 1].value || '07:00';
+      }
+
       const [h, m] = lastEnd.split(':').map(Number);
       const newEnd = String(Math.min(h + 1, 20)).padStart(2, '0') + ':' + String(m).padStart(2, '0');
       await dbClient.from('plan_template_items').insert([{
