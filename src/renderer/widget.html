@@ -581,7 +581,7 @@ body {
     // Helper: record timestamp so Realtime echo can be ignored, then insert
     function insertEntry(rows) {
       lastLocalInsertAt = Date.now();
-      return insertEntry(rows);
+      return dbClient.from('time_entries').insert(rows);
     }
 
     // ── DOM refs ──────────────────────────────────────────────
