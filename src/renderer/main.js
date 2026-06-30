@@ -6098,11 +6098,12 @@ const BIGPLAN_TAGS = {
 
 let bigplanYear  = new Date().getFullYear();
 let bigplanMonth = new Date().getMonth(); // 0-indexed
-let _bigplanEntries = {};   // date → row
+let _bigplanEntries = {};   // date → array of rows (multiple sticky notes per day)
 let _bigplanDayPlanDates = new Set(); // dates that have real plan entries
 let _bigplanGoals = [];
 let _bigplanDragDate = null; // date string of cell being drag-filled
 let _bigplanDragTag  = null;
+let _bigplanDragGoalId = null;
 
 (function wireBigPlanning() {
   document.getElementById('bigplanPrev').addEventListener('click', () => {
@@ -6144,7 +6145,10 @@ async function loadBigPlanning() {
   ]);
 
   _bigplanEntries = {};
-  (mpRes.data || []).forEach(r => { _bigplanEntries[r.date] = r; });
+  (mpRes.data || []).forEach(r => {
+    if (!_bigplanEntries[r.date]) _bigplanEntries[r.date] = [];
+    _bigplanEntries[r.date].push(r);
+  });
   _bigplanDayPlanDates = new Set((dpRes.data || []).map(r => r.date));
   _bigplanGoals = goalsRes.data || [];
 
@@ -6193,7 +6197,7 @@ function renderBigPlanningGrid() {
       const dateStr  = dateToString(cellDate);
       const inMonth  = cellDate.getMonth() === bigplanMonth && cellDate.getFullYear() === bigplanYear;
       const isToday  = dateStr === today;
-      const entry    = _bigplanEntries[dateStr];
+      const entries  = _bigplanEntries[dateStr] || [];
       const hasPlan  = _bigplanDayPlanDates.has(dateStr);
 
       const cell = document.createElement('div');
@@ -6205,24 +6209,31 @@ function renderBigPlanningGrid() {
       dateNum.textContent = cellDate.getDate();
       cell.appendChild(dateNum);
 
-      if (entry) {
+      entries.forEach(entry => {
         const tagInfo = entry.tag === 'goal'
           ? { label: _bigplanGoals.find(g => g.id === entry.goal_id)?.title || 'Goal', colour: _bigplanGoals.find(g => g.id === entry.goal_id)?.colour || '#22c55e' }
           : (BIGPLAN_TAGS[entry.tag] || BIGPLAN_TAGS.other);
+
+        const wrap = document.createElement('div');
+        wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
 
         const chip = document.createElement('div');
         chip.className = 'bigplan-entry-chip';
         chip.style.background = tagInfo.colour;
         chip.textContent = tagInfo.label;
-        cell.appendChild(chip);
+        chip.addEventListener('click', e => { e.stopPropagation(); openBigplanEntryModal(dateStr, entry); });
+        wrap.appendChild(chip);
 
         if (entry.note) {
           const note = document.createElement('div');
           note.className = 'bigplan-entry-note';
           note.textContent = entry.note;
-          cell.appendChild(note);
+          note.addEventListener('click', e => { e.stopPropagation(); openBigplanEntryModal(dateStr, entry); });
+          wrap.appendChild(note);
         }
-      }
+
+        cell.appendChild(wrap);
+      });
 
       if (hasPlan) {
         const dot = document.createElement('div');
@@ -6232,11 +6243,13 @@ function renderBigPlanningGrid() {
       }
 
       if (inMonth) {
-        cell.addEventListener('click', () => openBigplanCell(dateStr, entry));
+        // Click empty cell area → add a new sticky note
+        cell.addEventListener('click', () => openBigplanEntryModal(dateStr, null));
         cell.addEventListener('mousedown', e => {
           if (e.button !== 0) return;
-          _bigplanDragDate = dateStr;
-          _bigplanDragTag  = entry?.tag || null;
+          _bigplanDragDate  = dateStr;
+          _bigplanDragTag   = entries[0]?.tag || null;
+          _bigplanDragGoalId = entries[0]?.goal_id || null;
         });
         cell.addEventListener('mouseenter', e => {
           if (_bigplanDragDate && _bigplanDragDate !== dateStr && e.buttons === 1) {
@@ -6246,10 +6259,12 @@ function renderBigPlanningGrid() {
         cell.addEventListener('mouseleave', () => cell.classList.remove('drag-over'));
         cell.addEventListener('mouseup', async () => {
           if (_bigplanDragDate && _bigplanDragDate !== dateStr && _bigplanDragTag) {
-            await upsertBigplanEntry(dateStr, _bigplanDragTag, null, '');
+            await dbClient.from('month_plans').insert([{ user_id: currentUserId, date: dateStr, tag: _bigplanDragTag, goal_id: _bigplanDragGoalId, note: '' }]);
+            loadBigPlanning();
           }
           _bigplanDragDate = null;
           _bigplanDragTag  = null;
+          _bigplanDragGoalId = null;
           grid.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
         });
       }
@@ -6260,6 +6275,7 @@ function renderBigPlanningGrid() {
   document.addEventListener('mouseup', () => {
     _bigplanDragDate = null;
     _bigplanDragTag  = null;
+    _bigplanDragGoalId = null;
     grid.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
   }, { once: true });
 
@@ -6335,7 +6351,8 @@ async function fetchBigplanWeekCapacity() {
   } catch (e) { /* non-fatal */ }
 }
 
-function openBigplanCell(dateStr, existing) {
+// existing = null → adding a new sticky note. existing = a row → editing/removing that one.
+function openBigplanEntryModal(dateStr, existing) {
   const tagOptions = Object.entries(BIGPLAN_TAGS).map(([k, v]) =>
     `<option value="${k}"${existing?.tag === k ? ' selected' : ''}>${v.label}</option>`
   ).join('');
@@ -6365,7 +6382,7 @@ function openBigplanCell(dateStr, existing) {
     <div class="modal-footer">
       ${existing ? `<button class="modal-btn" id="bpDeleteBtn" style="color:var(--danger);border-color:var(--danger);">Remove</button>` : ''}
       <button class="modal-btn" onclick="closeModal()">Cancel</button>
-      <button class="modal-btn primary" id="bpSaveBtn">Save</button>
+      <button class="modal-btn primary" id="bpSaveBtn">${existing ? 'Save' : 'Add'}</button>
     </div>
   `);
 
@@ -6374,8 +6391,13 @@ function openBigplanCell(dateStr, existing) {
     let tag = raw, goalId = null;
     if (raw.startsWith('goal:')) { tag = 'goal'; goalId = raw.slice(5); }
     const note = $('bpNoteInput').value.trim();
-    await upsertBigplanEntry(dateStr, tag, goalId, note);
+    if (existing?.id) {
+      await dbClient.from('month_plans').update({ tag, goal_id: goalId, note }).eq('id', existing.id);
+    } else {
+      await dbClient.from('month_plans').insert([{ user_id: currentUserId, date: dateStr, tag, goal_id: goalId, note: note || '' }]);
+    }
     closeModal();
+    loadBigPlanning();
   });
 
   if ($('bpDeleteBtn')) {
@@ -6389,34 +6411,31 @@ function openBigplanCell(dateStr, existing) {
   }
 }
 
-async function upsertBigplanEntry(dateStr, tag, goalId, note) {
-  const existing = _bigplanEntries[dateStr];
-  if (existing?.id) {
-    await dbClient.from('month_plans').update({ tag, goal_id: goalId, note }).eq('id', existing.id);
-  } else {
-    await dbClient.from('month_plans').insert([{ user_id: currentUserId, date: dateStr, tag, goal_id: goalId, note: note || '' }]);
-  }
-  loadBigPlanning();
-}
-
-// Show month plan banner on Day Plan page for the current date
+// Show month plan banner on Day Plan page for the current date (can list multiple sticky notes)
 async function loadMonthPlanBanner(dateStr) {
   const banner = $('monthPlanBanner');
   if (!banner || !dbReady) return;
   try {
-    const { data } = await dbClient.from('month_plans').select('*').eq('user_id', currentUserId).eq('date', dateStr).maybeSingle();
-    if (!data) { banner.style.display = 'none'; return; }
-    let tagInfo;
-    if (data.tag === 'goal') {
-      const goal = _bigplanGoals.find(g => g.id === data.goal_id) ||
-        (await dbClient.from('goals').select('*').eq('id', data.goal_id).maybeSingle()).data;
-      tagInfo = { label: goal?.title || 'Goal', colour: goal?.colour || '#22c55e' };
-    } else {
-      tagInfo = BIGPLAN_TAGS[data.tag] || BIGPLAN_TAGS.other;
-    }
-    $('monthPlanBannerTag').textContent = tagInfo.label;
-    $('monthPlanBannerTag').style.background = tagInfo.colour;
-    $('monthPlanBannerNote').textContent = data.note ? ` — ${data.note}` : '';
+    const { data } = await dbClient.from('month_plans').select('*').eq('user_id', currentUserId).eq('date', dateStr);
+    if (!data || !data.length) { banner.style.display = 'none'; return; }
+
+    const chips = await Promise.all(data.map(async row => {
+      let tagInfo;
+      if (row.tag === 'goal') {
+        const goal = _bigplanGoals.find(g => g.id === row.goal_id) ||
+          (await dbClient.from('goals').select('*').eq('id', row.goal_id).maybeSingle()).data;
+        tagInfo = { label: goal?.title || 'Goal', colour: goal?.colour || '#22c55e' };
+      } else {
+        tagInfo = BIGPLAN_TAGS[row.tag] || BIGPLAN_TAGS.other;
+      }
+      return `<span style="display:inline-flex;align-items:center;gap:5px;">
+        <span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:${tagInfo.colour};color:#fff;">${escapeHtml(tagInfo.label)}</span>
+        ${row.note ? `<span style="color:var(--text);">${escapeHtml(row.note)}</span>` : ''}
+      </span>`;
+    }));
+
+    $('monthPlanBannerTag').style.display = 'none';
+    $('monthPlanBannerNote').innerHTML = chips.join('<span style="margin:0 6px;color:var(--text-dim);">·</span>');
     banner.style.display = 'flex';
   } catch (e) { banner.style.display = 'none'; }
 }
@@ -6446,12 +6465,13 @@ async function loadGoals() {
   }
 
   // Add goal button (once)
-  const addBtn = $('addGoalBtn');
+  const addBtn = $('addBoardGoalBtn');
   if (addBtn && !addBtn.dataset.wired) {
     addBtn.dataset.wired = 'true';
     addBtn.addEventListener('click', async () => {
-      const { data, error } = await dbClient.from('goals').insert([withUid({ title: '', description: '', progress_pct: 0, colour: '#3b82f6', sort_order: Date.now() })]).select().single();
-      if (!error && data) loadGoals();
+      const { data, error } = await dbClient.from('goals').insert([withUid({ title: '', description: '', progress_pct: 0, colour: '#3b82f6', sort_order: Date.now(), is_project: false })]).select().single();
+      if (error) { console.error('Add goal failed', error); return; }
+      loadGoals();
     });
   }
 
@@ -6490,7 +6510,7 @@ function buildGoalCard(goal, subs) {
     <div class="goal-card-header">
       <div class="goal-colour-dot" style="background:${goal.colour};" title="Click to change colour" data-id="${goal.id}"></div>
       <input class="goal-title-input" type="text" value="${escapeHtml(goal.title)}" placeholder="Goal title…" data-id="${goal.id}">
-      <input class="goal-deadline-input" type="date" value="${deadlineStr}" title="Deadline${deadlineHint}" data-id="${goal.id}">
+      <input class="goal-deadline-input" type="date" value="${deadlineStr}" title="Deadline (optional)${deadlineHint}" data-id="${goal.id}">
       <button class="goal-delete-btn" title="Delete goal" data-id="${goal.id}">✕</button>
     </div>
     <div class="goal-progress-row">
@@ -6499,13 +6519,25 @@ function buildGoalCard(goal, subs) {
       </div>
       <div class="goal-progress-pct">${goal.progress_pct}%</div>
     </div>
-    <div class="goal-sub-items" id="goalSubs_${goal.id}"></div>
-    <button class="goal-add-sub-btn" data-goal-id="${goal.id}">+ Add sub-goal</button>
+    <label style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--text-dim);cursor:pointer;margin-bottom:4px;">
+      <input type="checkbox" class="goal-is-project" ${goal.is_project ? 'checked' : ''}>
+      <span>This is a project (has sub-goals)</span>
+    </label>
+    <div class="goal-sub-items" id="goalSubs_${goal.id}" style="display:${goal.is_project ? 'flex' : 'none'};"></div>
+    <button class="goal-add-sub-btn" data-goal-id="${goal.id}" style="display:${goal.is_project ? '' : 'none'};">+ Add sub-goal</button>
   `;
 
   // Sub-goals
   const subsContainer = card.querySelector(`#goalSubs_${goal.id}`);
   subs.forEach(sub => subsContainer.appendChild(buildSubItem(sub, goal.colour)));
+
+  // Wire is-project toggle
+  card.querySelector('.goal-is-project').addEventListener('change', async e => {
+    const isProject = e.target.checked;
+    subsContainer.style.display = isProject ? 'flex' : 'none';
+    card.querySelector('.goal-add-sub-btn').style.display = isProject ? '' : 'none';
+    await dbClient.from('goals').update({ is_project: isProject }).eq('id', goal.id);
+  });
 
   // Wire colour dot
   card.querySelector('.goal-colour-dot').addEventListener('click', () => pickGoalColour(goal.id, goal.colour));

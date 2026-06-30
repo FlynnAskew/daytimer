@@ -1111,8 +1111,8 @@ html, body {
 
 .cat-row {
   display: grid;
-  /* dot | name | high-payoff toggle | delete */
-  grid-template-columns: 14px minmax(0, 1fr) auto auto;
+  /* drag handle | dot | name | high-payoff toggle | delete */
+  grid-template-columns: 16px 14px minmax(0, 1fr) auto auto;
   gap: 10px;
   align-items: center;
   background: var(--surface2);
@@ -1660,12 +1660,19 @@ html, body {
    BIG PLANNING PAGE
    ═══════════════════════════════════════════════════════════ */
 
+#page-bigplanning.active {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
 .bigplan-body {
   display: flex;
   flex-direction: column;
   gap: 0;
-  overflow: auto;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .bigplan-capacity-row {
@@ -1707,25 +1714,28 @@ html, body {
 .bigplan-grid {
   display: grid;
   grid-template-columns: 52px repeat(5, 1fr);
-  grid-template-rows: repeat(5, auto);
-  gap: 4px;
+  grid-template-rows: repeat(5, 1fr);
+  gap: 6px;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .bigplan-day-label {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: flex-end;
   padding-right: 10px;
+  padding-top: 6px;
   font-size: 10px;
   font-weight: 700;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  height: 72px;
 }
 
 .bigplan-cell {
-  min-height: 72px;
+  min-height: 90px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--surface2);
@@ -2044,10 +2054,11 @@ html, body {
 .cat-drag-handle {
   cursor: grab;
   color: var(--text-dim);
-  font-size: 14px;
-  padding: 0 4px;
+  font-size: 13px;
+  line-height: 1;
+  width: 16px;
+  text-align: center;
   opacity: 0.5;
-  flex-shrink: 0;
   user-select: none;
 }
 
