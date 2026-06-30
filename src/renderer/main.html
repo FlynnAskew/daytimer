@@ -46,6 +46,21 @@
       <span class="tooltip">Templates</span>
     </button>
 
+    <button class="nav-btn" data-page="bigplanning">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
+        <line x1="3" y1="10" x2="21" y2="10"/><line x1="8" y1="15" x2="8" y2="19"/><line x1="12" y1="15" x2="12" y2="19"/><line x1="16" y1="15" x2="16" y2="19"/>
+      </svg>
+      <span class="tooltip">Big Planning</span>
+    </button>
+
+    <button class="nav-btn" data-page="goals">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/>
+      </svg>
+      <span class="tooltip">Goals</span>
+    </button>
+
     <button class="nav-btn" data-page="insights">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
@@ -187,6 +202,13 @@
           <button class="mini-btn" id="loadTemplateBtn" style="margin-left:auto;display:flex;align-items:center;gap:5px;font-size:11px;padding:4px 10px;border:1px solid var(--border);border-radius:7px;background:var(--surface2);">📋 Load template</button>
         </div>
 
+        <!-- Month plan sticky note banner (shown if this date has a big-planning entry) -->
+        <div id="monthPlanBanner" style="display:none;margin-bottom:8px;padding:6px 12px;border-radius:8px;border:1px solid var(--border);background:var(--surface2);display:none;align-items:center;gap:8px;font-size:12px;">
+          <span id="monthPlanBannerTag" style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;background:var(--accent);color:#fff;"></span>
+          <span id="monthPlanBannerNote" style="color:var(--text);flex:1;"></span>
+          <button onclick="showPage('bigplanning')" style="font-size:10px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline;">Edit plan →</button>
+        </div>
+
         <!-- All-day events strip (only shown if there are all-day events) -->
         <div id="allDayStrip" class="all-day-strip" style="display:none;"></div>
 
@@ -304,6 +326,51 @@
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ─── BIG PLANNING PAGE ─── -->
+    <div class="page" id="page-bigplanning">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Big Planning</div>
+          <div class="page-subtitle" id="bigplanningSubtitle">—</div>
+        </div>
+        <div class="date-nav">
+          <button class="date-btn nav" id="bigplanPrev">‹</button>
+          <button class="date-btn today-btn" id="bigplanToday">This month</button>
+          <button class="date-btn nav" id="bigplanNext">›</button>
+        </div>
+      </div>
+      <div class="bigplan-body">
+        <!-- Week capacity strip -->
+        <div class="bigplan-capacity-row" id="bigplanCapacityRow"></div>
+        <!-- Month grid: day-of-week rows × week columns -->
+        <div class="bigplan-grid" id="bigplanGrid"></div>
+      </div>
+    </div>
+
+    <!-- ─── GOALS PAGE ─── -->
+    <div class="page" id="page-goals">
+      <div class="page-header">
+        <div>
+          <div class="page-title">Goals</div>
+          <div class="page-subtitle">Purpose · Long-term · Short-term</div>
+        </div>
+        <div class="date-nav">
+          <button class="modal-btn primary" id="addGoalBtn">+ Add goal</button>
+        </div>
+      </div>
+      <div class="goals-body">
+        <!-- Purpose statement -->
+        <div class="settings-section" style="margin-bottom:16px;">
+          <div class="section-title" style="margin-bottom:6px;">My Purpose</div>
+          <textarea id="purposeInput" rows="2" placeholder="What is your purpose? e.g. To build a business that gives my family freedom and leaves a legacy…"
+            style="width:100%;max-width:640px;padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;font-size:13px;color:var(--text);font-family:inherit;resize:vertical;line-height:1.5;"></textarea>
+          <button class="modal-btn" id="savePurposeBtn" style="margin-top:8px;font-size:12px;">Save</button>
+        </div>
+        <!-- Goals list -->
+        <div id="goalsList"></div>
       </div>
     </div>
 
@@ -621,6 +688,16 @@
                 <span>Show <strong>🐒 troop bar</strong> when colleagues are tracking</span>
               </label>
               <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Shows first names + current category of @howleruk.com colleagues who are actively tracking.</div>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field-label">Day plan sync</div>
+            <div>
+              <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+                <input type="checkbox" id="widgetSyncBtnToggle">
+                <span>Show sync button on widget</span>
+              </label>
+              <div style="font-size:10px;color:var(--text-dim);margin-top:5px;">Adds a ↻ button to the widget so you can refresh Coming Up after editing the Day Plan.</div>
             </div>
           </div>
           <div class="field-row">

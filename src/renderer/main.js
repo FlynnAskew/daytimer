@@ -315,9 +315,11 @@ function navigateTo(pageName) {
     }
     loadPlanner();
   }
-  if (pageName === 'todos')     loadTodos();
-  if (pageName === 'templates') loadTemplates();
-  if (pageName === 'insights')  loadInsights();
+  if (pageName === 'todos')        loadTodos();
+  if (pageName === 'templates')    loadTemplates();
+  if (pageName === 'bigplanning')  loadBigPlanning();
+  if (pageName === 'goals')        loadGoals();
+  if (pageName === 'insights')     loadInsights();
   if (pageName === 'stats')     loadStats();
   if (pageName === 'manager')   loadManager();
   if (pageName === 'settings')  loadSettings();
@@ -771,6 +773,9 @@ async function loadPlanner() {
   let entries = [];
   let calendarEvents = [];     // timed events from MS calendar (today only)
   let allDayEvents   = [];     // all-day events (rendered as a strip)
+
+  // Show month plan sticky note banner for this date
+  loadMonthPlanBanner(dateStr);
 
   if (dbReady) {
     try {
@@ -2576,6 +2581,18 @@ function loadSettings() {
     streakT.dataset.wired = 'true';
   }
 
+  // ── Widget sync button toggle ──────────────────────────────
+  const syncBtnT = $('widgetSyncBtnToggle');
+  if (syncBtnT && !syncBtnT.dataset.wired) {
+    ipcRenderer.invoke('get-widget-prefs').then(prefs => {
+      syncBtnT.checked = !!prefs.showSyncBtn;
+    }).catch(() => {});
+    syncBtnT.addEventListener('change', () => {
+      ipcRenderer.send('set-widget-pref', { key: 'showSyncBtn', value: syncBtnT.checked });
+    });
+    syncBtnT.dataset.wired = 'true';
+  }
+
   // ── Neon outline ───────────────────────────────────────────
   const neonToggle = $('neonOutlineToggle');
   const neonOptions = $('neonOutlineOptions');
@@ -2730,18 +2747,48 @@ async function loadFeatureRequests() {
       if (!data || !data.length) return;
       const heading = document.createElement('div');
       heading.textContent = 'Your requests';
-      heading.style.cssText = 'font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:2px;';
+      heading.style.cssText = 'font-size:11px;font-weight:600;color:var(--text-dim);margin-bottom:6px;';
       myList.appendChild(heading);
-      data.forEach(r => {
+      const open = data.filter(r => r.status !== 'complete' && r.status !== 'cancelled');
+      const done = data.filter(r => r.status === 'complete' || r.status === 'cancelled');
+      const renderRow = r => {
         const row = document.createElement('div');
-        row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;';
+        row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;';
         const text = document.createElement('div');
         text.textContent = r.request_text;
         text.style.cssText = 'flex:1;font-size:12px;color:var(--text);line-height:1.4;white-space:pre-wrap;';
         row.appendChild(text);
         row.appendChild(frStatusBadge(r.status));
         myList.appendChild(row);
-      });
+      };
+      open.forEach(renderRow);
+      if (done.length) {
+        const toggle = document.createElement('button');
+        toggle.style.cssText = 'font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:4px 0;margin-top:4px;text-align:left;';
+        toggle.textContent = `▶ Completed / cancelled (${done.length})`;
+        let expanded = false;
+        const doneList = document.createElement('div');
+        doneList.style.display = 'none';
+        done.forEach(r => {
+          const row = document.createElement('div');
+          row.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:4px;opacity:0.6;';
+          const text = document.createElement('div');
+          text.textContent = r.request_text;
+          text.style.cssText = 'flex:1;font-size:12px;color:var(--text);line-height:1.4;white-space:pre-wrap;text-decoration:line-through;';
+          row.appendChild(text);
+          row.appendChild(frStatusBadge(r.status));
+          doneList.appendChild(row);
+        });
+        toggle.addEventListener('click', () => {
+          expanded = !expanded;
+          doneList.style.display = expanded ? 'flex' : 'none';
+          doneList.style.flexDirection = 'column';
+          doneList.style.gap = '4px';
+          toggle.textContent = `${expanded ? '▼' : '▶'} Completed / cancelled (${done.length})`;
+        });
+        myList.appendChild(toggle);
+        myList.appendChild(doneList);
+      }
     } catch (e) { console.error('renderMine failed', e); }
   }
 
@@ -2830,11 +2877,9 @@ async function loadFeatureRequestsAdmin() {
         return;
       }
 
-      rows.forEach(r => {
+      const buildCard = r => {
         const card = document.createElement('div');
         card.style.cssText = 'padding:10px 12px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;gap:6px;';
-        if (r.status === 'cancelled' || r.status === 'complete') card.style.opacity = '0.6';
-
         const topRow = document.createElement('div');
         topRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;';
         const text = document.createElement('div');
@@ -2843,13 +2888,11 @@ async function loadFeatureRequestsAdmin() {
         topRow.appendChild(text);
         topRow.appendChild(frStatusBadge(r.status, (newStatus) => setStatus(r.id, newStatus)));
         card.appendChild(topRow);
-
         const meta = document.createElement('div');
         const when = r.created_at ? new Date(r.created_at).toLocaleDateString() : '';
         meta.textContent = `${r.user_email || 'unknown'}${when ? ' · ' + when : ''}`;
         meta.style.cssText = 'font-size:10px;color:var(--text-dim);';
         card.appendChild(meta);
-
         const actions = document.createElement('div');
         actions.style.cssText = 'display:flex;gap:6px;flex-wrap:wrap;';
         if (r.status !== 'planned')
@@ -2860,9 +2903,33 @@ async function loadFeatureRequestsAdmin() {
           actions.appendChild(adminBtn('Cancel', 'var(--text-dim)', () => setStatus(r.id, 'cancelled')));
         actions.appendChild(adminBtn('Delete', 'var(--danger)', () => deleteRequest(r.id)));
         card.appendChild(actions);
+        return card;
+      };
 
-        list.appendChild(card);
-      });
+      const openRows = rows.filter(r => r.status !== 'complete' && r.status !== 'cancelled');
+      const doneRows = rows.filter(r => r.status === 'complete' || r.status === 'cancelled');
+      openRows.forEach(r => list.appendChild(buildCard(r)));
+
+      if (doneRows.length) {
+        const toggle = document.createElement('button');
+        toggle.style.cssText = 'font-size:11px;color:var(--text-dim);background:none;border:none;cursor:pointer;padding:6px 0 2px;text-align:left;margin-top:4px;';
+        toggle.textContent = `▶ Completed / cancelled (${doneRows.length})`;
+        let expanded = false;
+        const doneSection = document.createElement('div');
+        doneSection.style.cssText = 'display:none;flex-direction:column;gap:8px;margin-top:6px;';
+        doneRows.forEach(r => {
+          const card = buildCard(r);
+          card.style.opacity = '0.6';
+          doneSection.appendChild(card);
+        });
+        toggle.addEventListener('click', () => {
+          expanded = !expanded;
+          doneSection.style.display = expanded ? 'flex' : 'none';
+          toggle.textContent = `${expanded ? '▼' : '▶'} Completed / cancelled (${doneRows.length})`;
+        });
+        list.appendChild(toggle);
+        list.appendChild(doneSection);
+      }
     } catch (e) { console.error('Feature requests admin render failed', e); }
   }
 
@@ -3706,7 +3773,8 @@ function themeSwatchHtml(t) {
 
 function renderCategoryList() {
   $('categoryList').innerHTML = state.categories.map(c => `
-    <div class="cat-row" data-id="${c.id}">
+    <div class="cat-row" data-id="${c.id}" draggable="true">
+      <div class="cat-drag-handle" title="Drag to reorder">⠿</div>
       <div class="cat-dot" style="background:${c.colour}" data-action="colour" data-id="${c.id}"></div>
       <input type="text" class="cat-name-input" value="${escapeHtml(c.name)}" data-action="rename" data-id="${c.id}">
       <label class="cat-payoff" title="High payoff — this category's time aggregates into the High Payoff chart on Insights" style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--text-dim);cursor:pointer;white-space:nowrap;">
@@ -3718,6 +3786,44 @@ function renderCategoryList() {
       </div>
     </div>
   `).join('');
+
+  // Drag-to-reorder
+  let _dragSrcId = null;
+  $('categoryList').querySelectorAll('.cat-row[draggable]').forEach(row => {
+    row.addEventListener('dragstart', e => {
+      _dragSrcId = row.dataset.id;
+      row.classList.add('cat-row-dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => row.classList.remove('cat-row-dragging'));
+    row.addEventListener('dragover', e => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      $('categoryList').querySelectorAll('.cat-row').forEach(r => r.classList.remove('cat-row-drag-over'));
+      if (row.dataset.id !== _dragSrcId) row.classList.add('cat-row-drag-over');
+    });
+    row.addEventListener('dragleave', () => row.classList.remove('cat-row-drag-over'));
+    row.addEventListener('drop', async e => {
+      e.preventDefault();
+      row.classList.remove('cat-row-drag-over');
+      if (!_dragSrcId || _dragSrcId === row.dataset.id) return;
+      // Reorder in state
+      const fromIdx = state.categories.findIndex(c => c.id === _dragSrcId);
+      const toIdx   = state.categories.findIndex(c => c.id === row.dataset.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = state.categories.splice(fromIdx, 1);
+      state.categories.splice(toIdx, 0, moved);
+      // Update sort_order in DB
+      if (dbReady) {
+        await Promise.all(state.categories.map((c, i) =>
+          String(c.id).startsWith('local-') ? null :
+          dbClient.from('categories').update({ sort_order: i + 1 }).eq('id', c.id)
+        ).filter(Boolean));
+      }
+      ipcRenderer.send('categories-updated');
+      renderCategoryList();
+    });
+  });
 
   // High-payoff toggle
   $('categoryList').querySelectorAll('[data-action="toggle-payoff"]').forEach(cb => {
@@ -5976,6 +6082,547 @@ async function applyTemplateToPlan(templateId, merge) {
     }
   });
 })();
+
+// ═══════════════════════════════════════════════════════════
+//  BIG PLANNING PAGE
+// ═══════════════════════════════════════════════════════════
+
+const BIGPLAN_TAGS = {
+  holiday:     { label: 'Holiday',     colour: '#f87171' },
+  appointment: { label: 'Appointment', colour: '#fb923c' },
+  project:     { label: 'Project',     colour: '#3b82f6' },
+  deadline:    { label: 'Deadline',    colour: '#a855f7' },
+  other:       { label: 'Other',       colour: '#6b7280' },
+  goal:        { label: 'Goal',        colour: '#22c55e' },
+};
+
+let bigplanYear  = new Date().getFullYear();
+let bigplanMonth = new Date().getMonth(); // 0-indexed
+let _bigplanEntries = {};   // date → row
+let _bigplanDayPlanDates = new Set(); // dates that have real plan entries
+let _bigplanGoals = [];
+let _bigplanDragDate = null; // date string of cell being drag-filled
+let _bigplanDragTag  = null;
+
+(function wireBigPlanning() {
+  document.getElementById('bigplanPrev').addEventListener('click', () => {
+    bigplanMonth--;
+    if (bigplanMonth < 0) { bigplanMonth = 11; bigplanYear--; }
+    loadBigPlanning();
+  });
+  document.getElementById('bigplanNext').addEventListener('click', () => {
+    bigplanMonth++;
+    if (bigplanMonth > 11) { bigplanMonth = 0; bigplanYear++; }
+    loadBigPlanning();
+  });
+  document.getElementById('bigplanToday').addEventListener('click', () => {
+    const n = new Date();
+    bigplanYear  = n.getFullYear();
+    bigplanMonth = n.getMonth();
+    loadBigPlanning();
+  });
+})();
+
+async function loadBigPlanning() {
+  if (!dbReady) return;
+
+  const monthStr = String(bigplanMonth + 1).padStart(2, '0');
+  $('bigplanningSubtitle').textContent =
+    new Date(bigplanYear, bigplanMonth, 1).toLocaleDateString('en-GB', { month: 'long', year: 'numeric' });
+
+  // Date range for the month
+  const firstDay = new Date(bigplanYear, bigplanMonth, 1);
+  const lastDay  = new Date(bigplanYear, bigplanMonth + 1, 0);
+  const fromStr  = `${bigplanYear}-${monthStr}-01`;
+  const toStr    = `${bigplanYear}-${monthStr}-${String(lastDay.getDate()).padStart(2, '0')}`;
+
+  // Fetch month plan entries, day_plans (for dots), and goals
+  const [mpRes, dpRes, goalsRes] = await Promise.all([
+    dbClient.from('month_plans').select('*').eq('user_id', currentUserId).gte('date', fromStr).lte('date', toStr),
+    dbClient.from('day_plans').select('date').eq('user_id', currentUserId).gte('date', fromStr).lte('date', toStr),
+    dbClient.from('goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true }),
+  ]);
+
+  _bigplanEntries = {};
+  (mpRes.data || []).forEach(r => { _bigplanEntries[r.date] = r; });
+  _bigplanDayPlanDates = new Set((dpRes.data || []).map(r => r.date));
+  _bigplanGoals = goalsRes.data || [];
+
+  renderBigPlanningGrid();
+}
+
+function renderBigPlanningGrid() {
+  const grid = $('bigplanGrid');
+  const capRow = $('bigplanCapacityRow');
+  grid.innerHTML = '';
+  capRow.innerHTML = '';
+
+  const today = dateToString(new Date());
+  const firstDay  = new Date(bigplanYear, bigplanMonth, 1);
+  const lastDay   = new Date(bigplanYear, bigplanMonth + 1, 0);
+  const totalDays = lastDay.getDate();
+
+  // Build 5 week columns. Week col 0 = first Mon on or before day 1.
+  // dow: 0=Sun…6=Sat. We want Mon=0…Fri=4 within each week.
+  const firstDow = firstDay.getDay(); // 0=Sun
+  // Offset from Monday (Mon=0): if firstDow=0(Sun) offset=6, else offset=firstDow-1
+  const offsetFromMon = firstDow === 0 ? 6 : firstDow - 1;
+  // The Monday of the first week column
+  const gridStart = new Date(firstDay);
+  gridStart.setDate(gridStart.getDate() - offsetFromMon);
+
+  // Capacity row header
+  capRow.innerHTML = '<div class="bigplan-cap-cell"></div>';
+  const WEEK_NAMES = ['Week 1', 'Week 2', 'Week 3', 'Week 4', 'Week 5'];
+  for (let w = 0; w < 5; w++) {
+    capRow.innerHTML += `<div class="bigplan-cap-cell" id="bigplanCap${w}"><span>${WEEK_NAMES[w]}</span></div>`;
+  }
+
+  const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
+
+  for (let dow = 0; dow < 5; dow++) {
+    // Row label
+    const label = document.createElement('div');
+    label.className = 'bigplan-day-label';
+    label.textContent = DOW_LABELS[dow];
+    grid.appendChild(label);
+
+    for (let w = 0; w < 5; w++) {
+      const cellDate = new Date(gridStart);
+      cellDate.setDate(gridStart.getDate() + w * 7 + dow);
+      const dateStr  = dateToString(cellDate);
+      const inMonth  = cellDate.getMonth() === bigplanMonth && cellDate.getFullYear() === bigplanYear;
+      const isToday  = dateStr === today;
+      const entry    = _bigplanEntries[dateStr];
+      const hasPlan  = _bigplanDayPlanDates.has(dateStr);
+
+      const cell = document.createElement('div');
+      cell.className = `bigplan-cell${isToday ? ' today' : ''}${!inMonth ? ' out-of-month' : ''}`;
+      cell.dataset.date = dateStr;
+
+      const dateNum = document.createElement('div');
+      dateNum.className = 'bigplan-date-num';
+      dateNum.textContent = cellDate.getDate();
+      cell.appendChild(dateNum);
+
+      if (entry) {
+        const tagInfo = entry.tag === 'goal'
+          ? { label: _bigplanGoals.find(g => g.id === entry.goal_id)?.title || 'Goal', colour: _bigplanGoals.find(g => g.id === entry.goal_id)?.colour || '#22c55e' }
+          : (BIGPLAN_TAGS[entry.tag] || BIGPLAN_TAGS.other);
+
+        const chip = document.createElement('div');
+        chip.className = 'bigplan-entry-chip';
+        chip.style.background = tagInfo.colour;
+        chip.textContent = tagInfo.label;
+        cell.appendChild(chip);
+
+        if (entry.note) {
+          const note = document.createElement('div');
+          note.className = 'bigplan-entry-note';
+          note.textContent = entry.note;
+          cell.appendChild(note);
+        }
+      }
+
+      if (hasPlan) {
+        const dot = document.createElement('div');
+        dot.className = 'bigplan-plan-dot';
+        dot.title = 'Day Plan has entries';
+        cell.appendChild(dot);
+      }
+
+      if (inMonth) {
+        cell.addEventListener('click', () => openBigplanCell(dateStr, entry));
+        cell.addEventListener('mousedown', e => {
+          if (e.button !== 0) return;
+          _bigplanDragDate = dateStr;
+          _bigplanDragTag  = entry?.tag || null;
+        });
+        cell.addEventListener('mouseenter', e => {
+          if (_bigplanDragDate && _bigplanDragDate !== dateStr && e.buttons === 1) {
+            cell.classList.add('drag-over');
+          }
+        });
+        cell.addEventListener('mouseleave', () => cell.classList.remove('drag-over'));
+        cell.addEventListener('mouseup', async () => {
+          if (_bigplanDragDate && _bigplanDragDate !== dateStr && _bigplanDragTag) {
+            await upsertBigplanEntry(dateStr, _bigplanDragTag, null, '');
+          }
+          _bigplanDragDate = null;
+          _bigplanDragTag  = null;
+          grid.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+        });
+      }
+
+      grid.appendChild(cell);
+    }
+  }
+  document.addEventListener('mouseup', () => {
+    _bigplanDragDate = null;
+    _bigplanDragTag  = null;
+    grid.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+  }, { once: true });
+
+  renderBigplanCapacity();
+}
+
+function renderBigplanCapacity() {
+  // Sum planned hours per week column from day_plans
+  // (We already have _bigplanDayPlanDates — capacity needs separate query for duration)
+  // For now show just a tick if any plan entries exist in that week
+  for (let w = 0; w < 5; w++) {
+    const cap = $(`bigplanCap${w}`);
+    if (!cap) continue;
+    // Check if any day in this week column has plan entries
+    const firstDay = new Date(bigplanYear, bigplanMonth, 1);
+    const firstDow = firstDay.getDay();
+    const offsetFromMon = firstDow === 0 ? 6 : firstDow - 1;
+    const gridStart = new Date(firstDay);
+    gridStart.setDate(gridStart.getDate() - offsetFromMon);
+    let hasEntries = false;
+    for (let dow = 0; dow < 5; dow++) {
+      const d = new Date(gridStart);
+      d.setDate(gridStart.getDate() + w * 7 + dow);
+      if (_bigplanDayPlanDates.has(dateToString(d))) { hasEntries = true; break; }
+    }
+    if (hasEntries) {
+      cap.querySelector('span').insertAdjacentHTML('beforeend', '<span class="cap-dot" title="Day Plan entries exist this week"></span>');
+    }
+  }
+  // Fetch actual hours per week async
+  fetchBigplanWeekCapacity();
+}
+
+async function fetchBigplanWeekCapacity() {
+  const monthStr = String(bigplanMonth + 1).padStart(2, '0');
+  const lastDay  = new Date(bigplanYear, bigplanMonth + 1, 0);
+  const fromStr  = `${bigplanYear}-${monthStr}-01`;
+  const toStr    = `${bigplanYear}-${monthStr}-${String(lastDay.getDate()).padStart(2, '0')}`;
+  try {
+    const { data } = await dbClient.from('day_plans')
+      .select('date, planned_start, planned_end')
+      .eq('user_id', currentUserId)
+      .gte('date', fromStr).lte('date', toStr);
+    if (!data) return;
+    // Sum planned hours per week
+    const firstDay = new Date(bigplanYear, bigplanMonth, 1);
+    const firstDow = firstDay.getDay();
+    const offsetFromMon = firstDow === 0 ? 6 : firstDow - 1;
+    const gridStart = new Date(firstDay);
+    gridStart.setDate(gridStart.getDate() - offsetFromMon);
+    const weekSecs = [0, 0, 0, 0, 0];
+    data.forEach(p => {
+      const secs = timeRangeToSecs(p.planned_start, p.planned_end);
+      for (let w = 0; w < 5; w++) {
+        for (let dow = 0; dow < 5; dow++) {
+          const d = new Date(gridStart);
+          d.setDate(gridStart.getDate() + w * 7 + dow);
+          if (dateToString(d) === p.date) weekSecs[w] += secs;
+        }
+      }
+    });
+    for (let w = 0; w < 5; w++) {
+      const cap = $(`bigplanCap${w}`);
+      if (!cap || !weekSecs[w]) continue;
+      let capHours = cap.querySelector('.cap-hours');
+      if (!capHours) {
+        capHours = document.createElement('span');
+        capHours.className = 'cap-hours';
+        cap.appendChild(capHours);
+      }
+      capHours.textContent = formatHoursMins(weekSecs[w]) + ' planned';
+    }
+  } catch (e) { /* non-fatal */ }
+}
+
+function openBigplanCell(dateStr, existing) {
+  const tagOptions = Object.entries(BIGPLAN_TAGS).map(([k, v]) =>
+    `<option value="${k}"${existing?.tag === k ? ' selected' : ''}>${v.label}</option>`
+  ).join('');
+
+  const goalOptions = _bigplanGoals.map(g =>
+    `<option value="goal:${g.id}"${existing?.tag === 'goal' && existing?.goal_id === g.id ? ' selected' : ''}>${g.title || 'Untitled goal'}</option>`
+  ).join('');
+
+  const d = new Date(dateStr + 'T12:00:00');
+  const displayDate = d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long' });
+
+  openModal(`
+    <div class="modal-title">${displayDate}</div>
+    <div style="display:flex;flex-direction:column;gap:12px;margin-bottom:16px;">
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:5px;">TYPE</label>
+        <select class="field-input" id="bpTagSelect" style="width:100%;">
+          ${tagOptions}
+          ${goalOptions ? `<optgroup label="Goals">${goalOptions}</optgroup>` : ''}
+        </select>
+      </div>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:5px;">NOTE (optional)</label>
+        <input type="text" class="field-input" id="bpNoteInput" value="${escapeHtml(existing?.note || '')}" placeholder="e.g. Team day out, Dentist 2pm…" style="width:100%;">
+      </div>
+    </div>
+    <div class="modal-footer">
+      ${existing ? `<button class="modal-btn" id="bpDeleteBtn" style="color:var(--danger);border-color:var(--danger);">Remove</button>` : ''}
+      <button class="modal-btn" onclick="closeModal()">Cancel</button>
+      <button class="modal-btn primary" id="bpSaveBtn">Save</button>
+    </div>
+  `);
+
+  $('bpSaveBtn').addEventListener('click', async () => {
+    const raw = $('bpTagSelect').value;
+    let tag = raw, goalId = null;
+    if (raw.startsWith('goal:')) { tag = 'goal'; goalId = raw.slice(5); }
+    const note = $('bpNoteInput').value.trim();
+    await upsertBigplanEntry(dateStr, tag, goalId, note);
+    closeModal();
+  });
+
+  if ($('bpDeleteBtn')) {
+    $('bpDeleteBtn').addEventListener('click', async () => {
+      if (existing?.id) {
+        await dbClient.from('month_plans').delete().eq('id', existing.id);
+      }
+      closeModal();
+      loadBigPlanning();
+    });
+  }
+}
+
+async function upsertBigplanEntry(dateStr, tag, goalId, note) {
+  const existing = _bigplanEntries[dateStr];
+  if (existing?.id) {
+    await dbClient.from('month_plans').update({ tag, goal_id: goalId, note }).eq('id', existing.id);
+  } else {
+    await dbClient.from('month_plans').insert([{ user_id: currentUserId, date: dateStr, tag, goal_id: goalId, note: note || '' }]);
+  }
+  loadBigPlanning();
+}
+
+// Show month plan banner on Day Plan page for the current date
+async function loadMonthPlanBanner(dateStr) {
+  const banner = $('monthPlanBanner');
+  if (!banner || !dbReady) return;
+  try {
+    const { data } = await dbClient.from('month_plans').select('*').eq('user_id', currentUserId).eq('date', dateStr).maybeSingle();
+    if (!data) { banner.style.display = 'none'; return; }
+    let tagInfo;
+    if (data.tag === 'goal') {
+      const goal = _bigplanGoals.find(g => g.id === data.goal_id) ||
+        (await dbClient.from('goals').select('*').eq('id', data.goal_id).maybeSingle()).data;
+      tagInfo = { label: goal?.title || 'Goal', colour: goal?.colour || '#22c55e' };
+    } else {
+      tagInfo = BIGPLAN_TAGS[data.tag] || BIGPLAN_TAGS.other;
+    }
+    $('monthPlanBannerTag').textContent = tagInfo.label;
+    $('monthPlanBannerTag').style.background = tagInfo.colour;
+    $('monthPlanBannerNote').textContent = data.note ? ` — ${data.note}` : '';
+    banner.style.display = 'flex';
+  } catch (e) { banner.style.display = 'none'; }
+}
+
+// ═══════════════════════════════════════════════════════════
+//  GOALS PAGE
+// ═══════════════════════════════════════════════════════════
+
+async function loadGoals() {
+  if (!dbReady) return;
+
+  // Purpose
+  try {
+    const { data } = await dbClient.from('user_settings').select('purpose_text').eq('user_id', currentUserId).maybeSingle();
+    if (data) $('purposeInput').value = data.purpose_text || '';
+  } catch (e) {}
+
+  // Wire save purpose (once)
+  const saveBtn = $('savePurposeBtn');
+  if (saveBtn && !saveBtn.dataset.wired) {
+    saveBtn.dataset.wired = 'true';
+    saveBtn.addEventListener('click', async () => {
+      const text = $('purposeInput').value.trim();
+      await dbClient.from('user_settings').upsert([{ user_id: currentUserId, purpose_text: text, updated_at: new Date().toISOString() }], { onConflict: 'user_id' });
+      if (window.dtFun) window.dtFun.toast('Purpose saved', { emoji: '🎯', duration: 2000 });
+    });
+  }
+
+  // Add goal button (once)
+  const addBtn = $('addGoalBtn');
+  if (addBtn && !addBtn.dataset.wired) {
+    addBtn.dataset.wired = 'true';
+    addBtn.addEventListener('click', async () => {
+      const { data, error } = await dbClient.from('goals').insert([withUid({ title: '', description: '', progress_pct: 0, colour: '#3b82f6', sort_order: Date.now() })]).select().single();
+      if (!error && data) loadGoals();
+    });
+  }
+
+  // Load goals
+  const { data: goals } = await dbClient.from('goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true });
+  const goalIds = (goals || []).map(g => g.id);
+  const { data: subs } = goalIds.length
+    ? await dbClient.from('goal_sub_items').select('*').in('goal_id', goalIds).order('sort_order', { ascending: true })
+    : { data: [] };
+
+  _bigplanGoals = goals || []; // keep in sync for Big Planning
+
+  const list = $('goalsList');
+  list.innerHTML = '';
+  if (!goals || goals.length === 0) {
+    list.innerHTML = '<div class="empty-state" style="padding:48px 20px;text-align:center;"><div style="font-size:36px;margin-bottom:8px;">🎯</div><div>No goals yet. Click "+ Add goal" to get started.</div></div>';
+    return;
+  }
+
+  goals.forEach(goal => {
+    const goalSubs = (subs || []).filter(s => s.goal_id === goal.id);
+    list.appendChild(buildGoalCard(goal, goalSubs));
+  });
+}
+
+function buildGoalCard(goal, subs) {
+  const card = document.createElement('div');
+  card.className = 'goal-card';
+  card.dataset.id = goal.id;
+
+  const deadlineStr = goal.deadline ? goal.deadline.substring(0, 10) : '';
+  const daysLeft = goal.deadline ? Math.ceil((new Date(goal.deadline) - new Date()) / 86400000) : null;
+  const deadlineHint = daysLeft !== null ? (daysLeft < 0 ? ` · ⚠️ overdue ${Math.abs(daysLeft)}d` : daysLeft === 0 ? ' · today!' : ` · ${daysLeft}d left`) : '';
+
+  card.innerHTML = `
+    <div class="goal-card-header">
+      <div class="goal-colour-dot" style="background:${goal.colour};" title="Click to change colour" data-id="${goal.id}"></div>
+      <input class="goal-title-input" type="text" value="${escapeHtml(goal.title)}" placeholder="Goal title…" data-id="${goal.id}">
+      <input class="goal-deadline-input" type="date" value="${deadlineStr}" title="Deadline${deadlineHint}" data-id="${goal.id}">
+      <button class="goal-delete-btn" title="Delete goal" data-id="${goal.id}">✕</button>
+    </div>
+    <div class="goal-progress-row">
+      <div class="goal-progress-track" title="Click to set progress" data-id="${goal.id}">
+        <div class="goal-progress-fill" style="width:${goal.progress_pct}%;background:${goal.colour};"></div>
+      </div>
+      <div class="goal-progress-pct">${goal.progress_pct}%</div>
+    </div>
+    <div class="goal-sub-items" id="goalSubs_${goal.id}"></div>
+    <button class="goal-add-sub-btn" data-goal-id="${goal.id}">+ Add sub-goal</button>
+  `;
+
+  // Sub-goals
+  const subsContainer = card.querySelector(`#goalSubs_${goal.id}`);
+  subs.forEach(sub => subsContainer.appendChild(buildSubItem(sub, goal.colour)));
+
+  // Wire colour dot
+  card.querySelector('.goal-colour-dot').addEventListener('click', () => pickGoalColour(goal.id, goal.colour));
+
+  // Wire title blur
+  card.querySelector('.goal-title-input').addEventListener('blur', async e => {
+    await dbClient.from('goals').update({ title: e.target.value }).eq('id', goal.id);
+  });
+
+  // Wire deadline
+  card.querySelector('.goal-deadline-input').addEventListener('change', async e => {
+    await dbClient.from('goals').update({ deadline: e.target.value || null }).eq('id', goal.id);
+    loadGoals();
+  });
+
+  // Wire delete
+  card.querySelector('.goal-delete-btn').addEventListener('click', () => {
+    openModal(`<div class="modal-title">Delete goal?</div>
+      <div style="font-size:13px;color:var(--text-dim);margin-bottom:16px;">"${escapeHtml(goal.title || 'Untitled')}" and all its sub-goals will be permanently removed.</div>
+      <div class="modal-footer">
+        <button class="modal-btn" onclick="closeModal()">Cancel</button>
+        <button class="modal-btn primary" id="confirmDeleteGoalBtn" style="background:var(--danger);border-color:var(--danger);">Delete</button>
+      </div>`);
+    $('confirmDeleteGoalBtn').addEventListener('click', async () => {
+      await dbClient.from('goals').delete().eq('id', goal.id);
+      closeModal();
+      loadGoals();
+    });
+  });
+
+  // Wire progress track click
+  card.querySelector('.goal-progress-track').addEventListener('click', e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct  = Math.round(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
+    card.querySelector('.goal-progress-fill').style.width = pct + '%';
+    card.querySelector('.goal-progress-pct').textContent  = pct + '%';
+    debounce(`goal_pct_${goal.id}`, () => dbClient.from('goals').update({ progress_pct: pct }).eq('id', goal.id), 600);
+  });
+
+  // Wire add sub-goal
+  card.querySelector('.goal-add-sub-btn').addEventListener('click', async () => {
+    const { data } = await dbClient.from('goal_sub_items').insert([{ goal_id: goal.id, title: '', progress_pct: 0, sort_order: Date.now() }]).select().single();
+    if (data) { subsContainer.appendChild(buildSubItem(data, goal.colour)); }
+  });
+
+  return card;
+}
+
+function buildSubItem(sub, colour) {
+  const row = document.createElement('div');
+  row.className = 'goal-sub-item';
+  row.dataset.id = sub.id;
+  const deadlineStr = sub.deadline ? sub.deadline.substring(0, 10) : '';
+  row.innerHTML = `
+    <button class="goal-sub-done-btn${sub.is_complete ? ' done' : ''}" title="${sub.is_complete ? 'Mark incomplete' : 'Mark complete'}">${sub.is_complete ? '✓' : ''}</button>
+    <input class="goal-sub-title${sub.is_complete ? ' done' : ''}" type="text" value="${escapeHtml(sub.title)}" placeholder="Sub-goal…">
+    <input class="goal-sub-deadline" type="date" value="${deadlineStr}" title="Deadline">
+    <div class="goal-sub-progress-track" title="Click to set progress">
+      <div class="goal-sub-progress-fill" style="width:${sub.progress_pct}%;background:${colour};"></div>
+    </div>
+    <div class="goal-sub-pct">${sub.progress_pct}%</div>
+    <button class="goal-sub-del" title="Remove">✕</button>
+  `;
+
+  row.querySelector('.goal-sub-done-btn').addEventListener('click', async e => {
+    const btn = e.currentTarget;
+    const done = !btn.classList.contains('done');
+    btn.classList.toggle('done', done);
+    btn.textContent = done ? '✓' : '';
+    btn.title = done ? 'Mark incomplete' : 'Mark complete';
+    row.querySelector('.goal-sub-title').classList.toggle('done', done);
+    await dbClient.from('goal_sub_items').update({ is_complete: done }).eq('id', sub.id);
+  });
+
+  row.querySelector('.goal-sub-title').addEventListener('blur', async e => {
+    await dbClient.from('goal_sub_items').update({ title: e.target.value }).eq('id', sub.id);
+  });
+
+  row.querySelector('.goal-sub-deadline').addEventListener('change', async e => {
+    await dbClient.from('goal_sub_items').update({ deadline: e.target.value || null }).eq('id', sub.id);
+  });
+
+  row.querySelector('.goal-sub-progress-track').addEventListener('click', e => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const pct  = Math.round(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
+    row.querySelector('.goal-sub-progress-fill').style.width = pct + '%';
+    row.querySelector('.goal-sub-pct').textContent = pct + '%';
+    debounce(`sub_pct_${sub.id}`, () => dbClient.from('goal_sub_items').update({ progress_pct: pct }).eq('id', sub.id), 600);
+  });
+
+  row.querySelector('.goal-sub-del').addEventListener('click', async () => {
+    await dbClient.from('goal_sub_items').delete().eq('id', sub.id);
+    row.remove();
+  });
+
+  return row;
+}
+
+function pickGoalColour(goalId, current) {
+  const colours = ['#f87171','#fb923c','#fbbf24','#4ade80','#22c55e','#2dd4bf','#38bdf8','#3b82f6','#818cf8','#a855f7','#ec4899','#6b7280'];
+  const swatches = colours.map(c =>
+    `<div onclick="applyGoalColour('${goalId}','${c}');closeModal()" style="width:28px;height:28px;border-radius:50%;background:${c};cursor:pointer;border:3px solid ${c === current ? '#fff' : 'transparent'};box-shadow:${c === current ? '0 0 0 2px var(--accent)' : 'none'};transition:all 0.15s;" title="${c}"></div>`
+  ).join('');
+  openModal(`<div class="modal-title">Choose colour</div><div style="display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin-bottom:16px;">${swatches}</div><div class="modal-footer"><button class="modal-btn" onclick="closeModal()">Cancel</button></div>`);
+}
+
+async function applyGoalColour(goalId, colour) {
+  await dbClient.from('goals').update({ colour }).eq('id', goalId);
+  loadGoals();
+}
+
+// Simple debounce helper (keyed so multiple rapid clicks on same element collapse)
+const _debounceTimers = {};
+function debounce(key, fn, ms) {
+  clearTimeout(_debounceTimers[key]);
+  _debounceTimers[key] = setTimeout(fn, ms);
+}
 
 // ═══════════════════════════════════════════════════════════
 //  BOOT
