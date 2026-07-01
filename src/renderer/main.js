@@ -6141,7 +6141,7 @@ async function loadBigPlanning() {
   const [mpRes, dpRes, goalsRes] = await Promise.all([
     dbClient.from('month_plans').select('*').eq('user_id', currentUserId).gte('date', fromStr).lte('date', toStr),
     dbClient.from('day_plans').select('date').eq('user_id', currentUserId).gte('date', fromStr).lte('date', toStr),
-    dbClient.from('goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true }),
+    dbClient.from('board_goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true }),
   ]);
 
   _bigplanEntries = {};
@@ -6209,42 +6209,43 @@ function renderBigPlanningGrid() {
       dateNum.textContent = cellDate.getDate();
       cell.appendChild(dateNum);
 
+      if (inMonth) {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'bigplan-add-btn';
+        addBtn.title = 'Add holiday / appointment / project…';
+        addBtn.textContent = '+';
+        addBtn.addEventListener('click', e => { e.stopPropagation(); openBigplanEntryModal(dateStr, null); });
+        cell.appendChild(addBtn);
+      }
+
       entries.forEach(entry => {
         const tagInfo = entry.tag === 'goal'
           ? { label: _bigplanGoals.find(g => g.id === entry.goal_id)?.title || 'Goal', colour: _bigplanGoals.find(g => g.id === entry.goal_id)?.colour || '#22c55e' }
           : (BIGPLAN_TAGS[entry.tag] || BIGPLAN_TAGS.other);
 
-        const wrap = document.createElement('div');
-        wrap.style.cssText = 'display:flex;flex-direction:column;gap:2px;';
-
         const chip = document.createElement('div');
         chip.className = 'bigplan-entry-chip';
         chip.style.background = tagInfo.colour;
-        chip.textContent = tagInfo.label;
+        chip.innerHTML = `<div class="bigplan-chip-title">${escapeHtml(tagInfo.label)}</div>` +
+          (entry.note ? `<div class="bigplan-chip-note">${escapeHtml(entry.note)}</div>` : '');
         chip.addEventListener('click', e => { e.stopPropagation(); openBigplanEntryModal(dateStr, entry); });
-        wrap.appendChild(chip);
-
-        if (entry.note) {
-          const note = document.createElement('div');
-          note.className = 'bigplan-entry-note';
-          note.textContent = entry.note;
-          note.addEventListener('click', e => { e.stopPropagation(); openBigplanEntryModal(dateStr, entry); });
-          wrap.appendChild(note);
-        }
-
-        cell.appendChild(wrap);
+        cell.appendChild(chip);
       });
 
       if (hasPlan) {
         const dot = document.createElement('div');
         dot.className = 'bigplan-plan-dot';
-        dot.title = 'Day Plan has entries';
+        dot.title = 'Day Plan has entries — double-click to open';
         cell.appendChild(dot);
       }
 
       if (inMonth) {
-        // Click empty cell area → add a new sticky note
-        cell.addEventListener('click', () => openBigplanEntryModal(dateStr, null));
+        // Double-click empty area → jump to the Day Plan for this date
+        cell.addEventListener('dblclick', e => {
+          if (e.target.closest('.bigplan-entry-chip') || e.target.closest('.bigplan-add-btn')) return;
+          state.plannerDate = new Date(dateStr + 'T12:00:00');
+          navigateTo('planner');
+        });
         cell.addEventListener('mousedown', e => {
           if (e.button !== 0) return;
           _bigplanDragDate  = dateStr;
@@ -6423,7 +6424,7 @@ async function loadMonthPlanBanner(dateStr) {
       let tagInfo;
       if (row.tag === 'goal') {
         const goal = _bigplanGoals.find(g => g.id === row.goal_id) ||
-          (await dbClient.from('goals').select('*').eq('id', row.goal_id).maybeSingle()).data;
+          (await dbClient.from('board_goals').select('*').eq('id', row.goal_id).maybeSingle()).data;
         tagInfo = { label: goal?.title || 'Goal', colour: goal?.colour || '#22c55e' };
       } else {
         tagInfo = BIGPLAN_TAGS[row.tag] || BIGPLAN_TAGS.other;
@@ -6469,17 +6470,17 @@ async function loadGoals() {
   if (addBtn && !addBtn.dataset.wired) {
     addBtn.dataset.wired = 'true';
     addBtn.addEventListener('click', async () => {
-      const { data, error } = await dbClient.from('goals').insert([withUid({ title: '', description: '', progress_pct: 0, colour: '#3b82f6', sort_order: Date.now(), is_project: false })]).select().single();
+      const { data, error } = await dbClient.from('board_goals').insert([withUid({ title: '', description: '', progress_pct: 0, colour: '#3b82f6', sort_order: Date.now(), is_project: false })]).select().single();
       if (error) { console.error('Add goal failed', error); return; }
       loadGoals();
     });
   }
 
   // Load goals
-  const { data: goals } = await dbClient.from('goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true });
+  const { data: goals } = await dbClient.from('board_goals').select('*').eq('user_id', currentUserId).order('sort_order', { ascending: true });
   const goalIds = (goals || []).map(g => g.id);
   const { data: subs } = goalIds.length
-    ? await dbClient.from('goal_sub_items').select('*').in('goal_id', goalIds).order('sort_order', { ascending: true })
+    ? await dbClient.from('board_goal_sub_items').select('*').in('goal_id', goalIds).order('sort_order', { ascending: true })
     : { data: [] };
 
   _bigplanGoals = goals || []; // keep in sync for Big Planning
@@ -6536,7 +6537,7 @@ function buildGoalCard(goal, subs) {
     const isProject = e.target.checked;
     subsContainer.style.display = isProject ? 'flex' : 'none';
     card.querySelector('.goal-add-sub-btn').style.display = isProject ? '' : 'none';
-    await dbClient.from('goals').update({ is_project: isProject }).eq('id', goal.id);
+    await dbClient.from('board_goals').update({ is_project: isProject }).eq('id', goal.id);
   });
 
   // Wire colour dot
@@ -6544,12 +6545,12 @@ function buildGoalCard(goal, subs) {
 
   // Wire title blur
   card.querySelector('.goal-title-input').addEventListener('blur', async e => {
-    await dbClient.from('goals').update({ title: e.target.value }).eq('id', goal.id);
+    await dbClient.from('board_goals').update({ title: e.target.value }).eq('id', goal.id);
   });
 
   // Wire deadline
   card.querySelector('.goal-deadline-input').addEventListener('change', async e => {
-    await dbClient.from('goals').update({ deadline: e.target.value || null }).eq('id', goal.id);
+    await dbClient.from('board_goals').update({ deadline: e.target.value || null }).eq('id', goal.id);
     loadGoals();
   });
 
@@ -6562,7 +6563,7 @@ function buildGoalCard(goal, subs) {
         <button class="modal-btn primary" id="confirmDeleteGoalBtn" style="background:var(--danger);border-color:var(--danger);">Delete</button>
       </div>`);
     $('confirmDeleteGoalBtn').addEventListener('click', async () => {
-      await dbClient.from('goals').delete().eq('id', goal.id);
+      await dbClient.from('board_goals').delete().eq('id', goal.id);
       closeModal();
       loadGoals();
     });
@@ -6574,12 +6575,12 @@ function buildGoalCard(goal, subs) {
     const pct  = Math.round(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
     card.querySelector('.goal-progress-fill').style.width = pct + '%';
     card.querySelector('.goal-progress-pct').textContent  = pct + '%';
-    debounce(`goal_pct_${goal.id}`, () => dbClient.from('goals').update({ progress_pct: pct }).eq('id', goal.id), 600);
+    debounce(`goal_pct_${goal.id}`, () => dbClient.from('board_goals').update({ progress_pct: pct }).eq('id', goal.id), 600);
   });
 
   // Wire add sub-goal
   card.querySelector('.goal-add-sub-btn').addEventListener('click', async () => {
-    const { data } = await dbClient.from('goal_sub_items').insert([{ goal_id: goal.id, title: '', progress_pct: 0, sort_order: Date.now() }]).select().single();
+    const { data } = await dbClient.from('board_goal_sub_items').insert([{ goal_id: goal.id, title: '', progress_pct: 0, sort_order: Date.now() }]).select().single();
     if (data) { subsContainer.appendChild(buildSubItem(data, goal.colour)); }
   });
 
@@ -6609,15 +6610,15 @@ function buildSubItem(sub, colour) {
     btn.textContent = done ? '✓' : '';
     btn.title = done ? 'Mark incomplete' : 'Mark complete';
     row.querySelector('.goal-sub-title').classList.toggle('done', done);
-    await dbClient.from('goal_sub_items').update({ is_complete: done }).eq('id', sub.id);
+    await dbClient.from('board_goal_sub_items').update({ is_complete: done }).eq('id', sub.id);
   });
 
   row.querySelector('.goal-sub-title').addEventListener('blur', async e => {
-    await dbClient.from('goal_sub_items').update({ title: e.target.value }).eq('id', sub.id);
+    await dbClient.from('board_goal_sub_items').update({ title: e.target.value }).eq('id', sub.id);
   });
 
   row.querySelector('.goal-sub-deadline').addEventListener('change', async e => {
-    await dbClient.from('goal_sub_items').update({ deadline: e.target.value || null }).eq('id', sub.id);
+    await dbClient.from('board_goal_sub_items').update({ deadline: e.target.value || null }).eq('id', sub.id);
   });
 
   row.querySelector('.goal-sub-progress-track').addEventListener('click', e => {
@@ -6625,11 +6626,11 @@ function buildSubItem(sub, colour) {
     const pct  = Math.round(Math.max(0, Math.min(100, ((e.clientX - rect.left) / rect.width) * 100)));
     row.querySelector('.goal-sub-progress-fill').style.width = pct + '%';
     row.querySelector('.goal-sub-pct').textContent = pct + '%';
-    debounce(`sub_pct_${sub.id}`, () => dbClient.from('goal_sub_items').update({ progress_pct: pct }).eq('id', sub.id), 600);
+    debounce(`sub_pct_${sub.id}`, () => dbClient.from('board_goal_sub_items').update({ progress_pct: pct }).eq('id', sub.id), 600);
   });
 
   row.querySelector('.goal-sub-del').addEventListener('click', async () => {
-    await dbClient.from('goal_sub_items').delete().eq('id', sub.id);
+    await dbClient.from('board_goal_sub_items').delete().eq('id', sub.id);
     row.remove();
   });
 
@@ -6645,7 +6646,7 @@ function pickGoalColour(goalId, current) {
 }
 
 async function applyGoalColour(goalId, colour) {
-  await dbClient.from('goals').update({ colour }).eq('id', goalId);
+  await dbClient.from('board_goals').update({ colour }).eq('id', goalId);
   loadGoals();
 }
 
