@@ -4601,7 +4601,10 @@ async function renderPlanAdherence() {
 // ═══════════════════════════════════════════════════════════
 let todoState = {
   showDone: false,
-  todos: []
+  todos: [],
+  filterCategory: '',
+  filterFlag: '',
+  sortBy: 'manual'
 };
 
 async function loadTodos() {
@@ -4612,6 +4615,33 @@ async function loadTodos() {
       state.categories.map(c =>
         `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`
       ).join('');
+  }
+
+  // Populate filter-by-category dropdown (keeps current selection if still valid)
+  const filterSel = $('todoFilterCategory');
+  if (filterSel) {
+    const current = filterSel.value;
+    filterSel.innerHTML = '<option value="">All categories</option>' +
+      state.categories.map(c =>
+        `<option value="${escapeHtml(c.name)}">${escapeHtml(c.name)}</option>`
+      ).join('');
+    if (state.categories.some(c => c.name === current)) filterSel.value = current;
+  }
+
+  // Wire filter/sort controls (once)
+  if (filterSel && !filterSel.dataset.wired) {
+    filterSel.dataset.wired = 'true';
+    filterSel.addEventListener('change', () => { todoState.filterCategory = filterSel.value; renderLocalTodos(); });
+  }
+  const flagSel = $('todoFilterFlag');
+  if (flagSel && !flagSel.dataset.wired) {
+    flagSel.dataset.wired = 'true';
+    flagSel.addEventListener('change', () => { todoState.filterFlag = flagSel.value; renderLocalTodos(); });
+  }
+  const sortSel = $('todoSortBy');
+  if (sortSel && !sortSel.dataset.wired) {
+    sortSel.dataset.wired = 'true';
+    sortSel.addEventListener('change', () => { todoState.sortBy = sortSel.value; renderLocalTodos(); });
   }
 
   // Load both columns in parallel
@@ -4826,7 +4856,39 @@ async function loadLocalTodos() {
 function renderLocalTodos() {
   const open = todoState.todos.filter(t => !t.is_done);
   const done = todoState.todos.filter(t => t.is_done);
-  const list = todoState.showDone ? [...open, ...done] : open;
+  let list = todoState.showDone ? [...open, ...done] : open;
+
+  // Filter
+  if (todoState.filterCategory) {
+    list = list.filter(t => t.category === todoState.filterCategory);
+  }
+  if (todoState.filterFlag === 'flagged') {
+    list = list.filter(t => t.is_high_priority);
+  } else if (todoState.filterFlag === 'unflagged') {
+    list = list.filter(t => !t.is_high_priority);
+  }
+
+  // Sort (open/done grouping is preserved by stable-sorting within the already-grouped list)
+  if (todoState.sortBy === 'due_date') {
+    list = [...list].sort((a, b) => {
+      if (a.is_done !== b.is_done) return a.is_done ? 1 : -1;
+      if (!a.due_date && !b.due_date) return 0;
+      if (!a.due_date) return 1;
+      if (!b.due_date) return -1;
+      return a.due_date.localeCompare(b.due_date);
+    });
+  } else if (todoState.sortBy === 'category') {
+    list = [...list].sort((a, b) => {
+      if (a.is_done !== b.is_done) return a.is_done ? 1 : -1;
+      return (a.category || '').localeCompare(b.category || '');
+    });
+  } else if (todoState.sortBy === 'priority') {
+    list = [...list].sort((a, b) => {
+      if (a.is_done !== b.is_done) return a.is_done ? 1 : -1;
+      return (b.is_high_priority ? 1 : 0) - (a.is_high_priority ? 1 : 0);
+    });
+  }
+  // 'manual' — leave as-is (already sorted by sort_order from the query)
 
   $('todoListTitle').textContent =
     todoState.showDone ? `All (${todoState.todos.length})` : `Open (${open.length})`;
@@ -4835,7 +4897,7 @@ function renderLocalTodos() {
     : `Show done (${done.length})`;
 
   if (list.length === 0) {
-    $('todoList').innerHTML = '<div class="empty-state" style="padding:30px;"><div>No to-dos yet. Add one above.</div></div>';
+    $('todoList').innerHTML = '<div class="empty-state" style="padding:30px;"><div>No to-dos match this filter.</div></div>';
     return;
   }
 
@@ -4846,11 +4908,18 @@ function renderLocalTodos() {
     // Scheduled state shows as a blue outline on the row + a tooltip
     // with the date — no extra column needed.
     const scheduledClass = t.scheduled_date ? ' scheduled' : '';
-    const rowTitle = t.scheduled_date ? `Scheduled for ${escapeHtml(t.scheduled_date)}` : '';
+    const rowTitleParts = [];
+    if (t.scheduled_date) rowTitleParts.push(`Scheduled for ${t.scheduled_date}`);
+    if (t.due_date) rowTitleParts.push(`Due ${t.due_date}`);
+    const rowTitle = escapeHtml(rowTitleParts.join(' · '));
     // Category cell occupies the slot whether or not a category is set —
     // keeps the grid columns aligned across rows.
     const catCell = t.category
       ? `<span class="todo-cat" style="background:${catSoft};color:${catColour};">${escapeHtml(t.category)}</span>`
+      : `<span></span>`;
+    const overdue = t.due_date && !t.is_done && t.due_date < dateToString(new Date());
+    const dueCell = t.due_date
+      ? `<span class="todo-due${overdue ? ' overdue' : ''}" title="Due ${t.due_date}">${new Date(t.due_date + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}</span>`
       : `<span></span>`;
     return `
       <div class="todo-row ${t.is_done ? 'done' : ''}${scheduledClass} ${t.is_high_priority ? 'high-priority' : ''}" data-id="${t.id}" draggable="true" title="${rowTitle}">
@@ -4859,6 +4928,7 @@ function renderLocalTodos() {
         </div>
         <div class="todo-name" data-action="edit" data-id="${t.id}">${escapeHtml(t.task_name)}</div>
         ${catCell}
+        ${dueCell}
         ${priorityBtn}
         <button class="todo-add-to-plan" data-action="to-plan" data-id="${t.id}" title="Add to today's plan">→ Plan</button>
         <button class="mini-btn danger" data-action="delete" data-id="${t.id}" title="Delete">✕</button>
@@ -4928,6 +4998,10 @@ function editTodo(id) {
     <div style="display:flex;flex-direction:column;gap:10px;">
       <input type="text" class="field-input" id="editTodoName" value="${escapeHtml(todo.task_name)}" style="width:100%;">
       <select class="field-input" id="editTodoCat" style="width:100%;">${catOptions}</select>
+      <div>
+        <label style="font-size:11px;font-weight:600;color:var(--text-dim);display:block;margin-bottom:5px;">DUE DATE (optional)</label>
+        <input type="date" class="field-input" id="editTodoDueDate" value="${todo.due_date || ''}" style="width:100%;">
+      </div>
       <textarea class="field-input" id="editTodoNotes" placeholder="Notes (optional)" rows="3" style="width:100%;resize:vertical;">${escapeHtml(todo.notes || '')}</textarea>
       <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text);">
         <input type="checkbox" id="editTodoPriority" ${todo.is_high_priority ? 'checked' : ''}>
@@ -4946,6 +5020,7 @@ function editTodo(id) {
       await dbClient.from('todos').update({
         task_name: name,
         category: $('editTodoCat').value || null,
+        due_date: $('editTodoDueDate').value || null,
         notes: $('editTodoNotes').value.trim() || null,
         is_high_priority: $('editTodoPriority').checked
       }).eq('id', id);
@@ -5027,15 +5102,18 @@ async function addNewTodo() {
   const name = $('todoNewInput').value.trim();
   if (!name) return;
   const category = $('todoNewCategory').value || null;
+  const dueDate  = $('todoNewDueDate').value || null;
   if (dbReady) {
     await dbClient.from('todos').insert([withUid({
       task_name: name,
       category,
+      due_date: dueDate,
       sort_order: (todoState.todos.length || 0) + 1
     })]);
   }
   $('todoNewInput').value = '';
   $('todoNewCategory').value = '';
+  $('todoNewDueDate').value = '';
   $('todoNewInput').focus();
   loadLocalTodos();
 }

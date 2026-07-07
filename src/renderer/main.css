@@ -751,8 +751,8 @@ html, body {
 /* ═══════════════ TO-DO LIST ═══════════════ */
 .todo-row {
   display: grid;
-  /* checkbox | name (flex, truncates) | category | priority flag | Plan btn | delete */
-  grid-template-columns: 22px minmax(0, 1fr) auto auto auto auto;
+  /* checkbox | name (flex, truncates) | category | due date | priority flag | Plan btn | delete */
+  grid-template-columns: 22px minmax(0, 1fr) auto auto auto auto auto;
   gap: 10px;
   align-items: center;
   padding: 9px 12px;
@@ -762,6 +762,15 @@ html, body {
   margin-bottom: 4px;
   cursor: grab;
 }
+
+.todo-due {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.todo-due.overdue { color: var(--danger); }
 .todo-row:hover {
   background: var(--surface2);
 }

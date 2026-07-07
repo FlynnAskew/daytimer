@@ -259,7 +259,27 @@
                 <select class="field-input" id="todoNewCategory" style="width:140px;">
                   <option value="">— No category —</option>
                 </select>
+                <input type="date" class="field-input" id="todoNewDueDate" title="Due date (optional)" style="width:135px;">
                 <button class="modal-btn primary" id="todoAddBtn">Add</button>
+              </div>
+            </div>
+
+            <div class="settings-section" style="margin-bottom:12px;padding:10px 12px;">
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                <select class="field-input" id="todoFilterCategory" style="width:150px;font-size:12px;">
+                  <option value="">All categories</option>
+                </select>
+                <select class="field-input" id="todoFilterFlag" style="width:130px;font-size:12px;">
+                  <option value="">All tasks</option>
+                  <option value="flagged">🚩 Flagged only</option>
+                  <option value="unflagged">Unflagged only</option>
+                </select>
+                <select class="field-input" id="todoSortBy" style="width:150px;font-size:12px;">
+                  <option value="manual">Sort: Manual</option>
+                  <option value="due_date">Sort: Due date</option>
+                  <option value="category">Sort: Category</option>
+                  <option value="priority">Sort: Flagged first</option>
+                </select>
               </div>
             </div>
 
