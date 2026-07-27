@@ -298,6 +298,11 @@ function categoryColour(name) {
 
 // ── Routing ────────────────────────────────────────────────
 function navigateTo(pageName) {
+  // Leaving Templates — flush any un-blurred field before the editor is torn down
+  if (state.currentPage === 'templates' && pageName !== 'templates' && _flushActiveTemplateEditor) {
+    _flushActiveTemplateEditor().catch(() => {});
+    _flushActiveTemplateEditor = null;
+  }
   state.currentPage = pageName;
   document.querySelectorAll('.nav-btn').forEach(b => {
     b.classList.toggle('active', b.dataset.page === pageName);
@@ -4563,22 +4568,33 @@ async function renderPlanAdherence() {
 
     let totalMatchScore = 0;
     let daysCounted = 0;
+    let bestScore = null;
+    let bestDate  = null;
     Object.entries(byDate).forEach(([date, d]) => {
       if (d.plans.length === 0) return;
       const score = calculatePlanMatch(d.plans, d.entries);
       if (score !== null) {
         totalMatchScore += score;
         daysCounted++;
+        if (bestScore === null || score > bestScore) { bestScore = score; bestDate = date; }
       }
     });
 
     const avgScore = daysCounted > 0 ? Math.round(totalMatchScore / daysCounted) : null;
+    const bestLabel = bestDate
+      ? new Date(bestDate + 'T12:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+      : '';
 
     $('planAdherence').innerHTML = `
       <div class="pattern-row">
         <div class="pattern-label">Avg plan match</div>
         <div></div>
         <div class="pattern-value">${avgScore !== null ? avgScore + '%' : '—'}</div>
+      </div>
+      <div class="pattern-row">
+        <div class="pattern-label">Best day match${bestLabel ? ` (${bestLabel})` : ''}</div>
+        <div></div>
+        <div class="pattern-value">${bestScore !== null ? bestScore + '%' : '—'}</div>
       </div>
       <div class="pattern-row">
         <div class="pattern-label">Days planned</div>
@@ -5766,6 +5782,10 @@ async function maybeShowWeekSummary() {
 // ═══════════════════════════════════════════════════════════
 
 let activeTemplateId = null;
+// Points at the currently-open template editor's flush function, so code
+// outside renderTemplateEditor (switching templates, leaving the page) can
+// force any un-blurred field to save before the editor is torn down.
+let _flushActiveTemplateEditor = null;
 
 async function loadTemplates() {
   if (!dbReady) return;
@@ -5775,6 +5795,7 @@ async function loadTemplates() {
   if (newBtn && !newBtn.dataset.wired) {
     newBtn.dataset.wired = 'true';
     newBtn.addEventListener('click', async () => {
+      if (_flushActiveTemplateEditor) { await _flushActiveTemplateEditor(); _flushActiveTemplateEditor = null; }
       const { data: tpl, error } = await dbClient
         .from('plan_templates')
         .insert([{ user_id: currentUserId, name: 'New template', type: 'day' }])
@@ -5826,6 +5847,9 @@ function renderTemplateList(templates) {
   list.querySelectorAll('.template-card').forEach(card => {
     card.addEventListener('click', async e => {
       if (e.target.closest('.tpl-delete')) return;
+      if (card.dataset.id === activeTemplateId) return;
+      // Flush whatever's still un-blurred in the current editor before we tear it down
+      if (_flushActiveTemplateEditor) { await _flushActiveTemplateEditor(); _flushActiveTemplateEditor = null; }
       activeTemplateId = card.dataset.id;
       list.querySelectorAll('.template-card').forEach(c =>
         c.classList.toggle('active', c.dataset.id === activeTemplateId));
@@ -5985,6 +6009,7 @@ async function renderTemplateEditor(tpl) {
       return dbClient.from('plan_template_items').update(update).eq('id', id);
     }));
   }
+  _flushActiveTemplateEditor = flushEditorItems;
 
   // Add slot
   editor.querySelectorAll('.tpl-add-item').forEach(btn =>
@@ -6628,6 +6653,7 @@ function buildGoalCard(goal, subs) {
 
   // Wire deadline
   card.querySelector('.goal-deadline-input').addEventListener('change', async e => {
+    await flushDebounce(`goal_pct_${goal.id}`);
     await dbClient.from('board_goals').update({ deadline: e.target.value || null }).eq('id', goal.id);
     loadGoals();
   });
@@ -6724,15 +6750,29 @@ function pickGoalColour(goalId, current) {
 }
 
 async function applyGoalColour(goalId, colour) {
+  await flushDebounce(`goal_pct_${goalId}`);
   await dbClient.from('board_goals').update({ colour }).eq('id', goalId);
   loadGoals();
 }
 
 // Simple debounce helper (keyed so multiple rapid clicks on same element collapse)
 const _debounceTimers = {};
+const _debounceFns = {};
 function debounce(key, fn, ms) {
   clearTimeout(_debounceTimers[key]);
-  _debounceTimers[key] = setTimeout(fn, ms);
+  _debounceFns[key] = fn;
+  _debounceTimers[key] = setTimeout(() => { fn(); delete _debounceFns[key]; }, ms);
+}
+// Forces a pending debounced write to run immediately — call before any
+// action that re-fetches from DB, so it doesn't clobber an unsaved value.
+async function flushDebounce(key) {
+  if (_debounceTimers[key]) {
+    clearTimeout(_debounceTimers[key]);
+    const fn = _debounceFns[key];
+    delete _debounceFns[key];
+    delete _debounceTimers[key];
+    if (fn) await fn();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
