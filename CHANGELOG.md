@@ -2,6 +2,19 @@
 
 All notable changes to DayTimer.
 
+## [5.8.0] — 2026-09-19
+
+### Added
+- **Plan vs Actual check at End Day** — optional, off unless you turn it on in Hub → Settings → DayTimer. With it on, hitting Pause → End Day asks you for your Plan vs Actual % before it will finish. It deliberately does NOT show you the figure: you go and look it up (there is a link straight to that day on Hub), which is the whole point — it is hard to get better at following a plan you never check yourself against.
+  - Only when you deliberately End Day. Closing the widget is unaffected, and so is the automatic end after a long idle, when nobody is at the keyboard to answer.
+  - The panel is an in-widget overlay, not a system dialog, so the taskbar, the Windows key and your browser all stay reachable while it is up.
+  - "Keep working" backs out of ending the day rather than skipping the question. There is no "end it anyway".
+  - What you type is saved with what the figure actually was at that moment, so the gap between the two can be looked at later. `supabase-v5.8.0.sql`: new `day_reviews` table with RLS.
+- **The widget now reads its preferences from Hub.** Settings → DayTimer in Hub writes them; the widget merges them over its local copy when it next starts and signs in. Hub's settings page has claimed this for a while; this is the release that makes it true. Anything Hub has never written falls through to whatever this machine already had.
+
+### Changed
+- `calculatePlanMatch` moved out of `src/renderer/main.js` into `src/renderer/planMatch.js`, so the widget and the main window share one copy rather than two that must agree. Behaviour is unchanged, including the long-standing quirk where an hour worked exactly as planned scores 80% rather than 100% — `src/renderer/planMatch.test.mjs` pins that deliberately, because "fixing" it would move everybody's score overnight and put this app out of step with Hub.
+
 ## [5.6.8] — 2026-06-24
 
 ### Added
