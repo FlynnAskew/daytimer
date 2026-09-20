@@ -475,55 +475,8 @@ body {
     </div>
   </div>
 
-  <!--
-    End-day Plan vs Actual review.
-
-    Off unless the person turns it on (Hub → Settings → DayTimer). The point of
-    it is the friction, not the number: they have to go and LOOK THE FIGURE UP
-    before they can end the day, which is why this panel deliberately does not
-    display it. Flynn: "by forcing people to manually find this figure and enter
-    it in before they can end the day, means it forces them to be aware of how
-    good they are at following their plan."
-
-    An in-page overlay, like the two above, and NOT a native dialog — a modal
-    window would take the focus and could sit over the taskbar, and the whole
-    exercise depends on being able to hit the Windows key and open Hub while
-    this is on screen.
-  -->
-  <div id="endDayReview" style="display:none;position:absolute;inset:0;background:rgba(0,0,0,0.7);border-radius:16px;z-index:52;align-items:center;justify-content:center;padding:20px;">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px;width:100%;">
-      <div style="font-size:13px;font-weight:600;color:var(--text);margin-bottom:6px;">Before you finish</div>
-      <div style="font-size:11px;color:var(--text-dim);margin-bottom:12px;line-height:1.5;">
-        What was your Plan vs Actual today? Look it up in
-        <a href="#" id="endDayReviewLink" style="color:var(--accent);text-decoration:underline;">DayTimer on Hub</a>,
-        then type it in.
-      </div>
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-        <input
-          id="endDayReviewInput"
-          type="number"
-          min="0"
-          max="100"
-          inputmode="numeric"
-          placeholder="0–100"
-          style="flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:16px;font-weight:600;padding:8px 10px;outline:none;"
-        />
-        <span style="font-size:15px;font-weight:600;color:var(--text-dim);">%</span>
-      </div>
-      <div id="endDayReviewError" style="display:none;font-size:11px;color:#f87171;margin-bottom:8px;"></div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:10px;">
-        <!-- Not a skip. The only way past the question is to not end the day,
-             which is exactly the choice on offer — there is no "end it anyway"
-             button, or the prompt would be advice rather than a step. -->
-        <button class="pause-btn" id="endDayReviewCancelBtn">Keep working</button>
-        <button class="pause-btn" id="endDayReviewDoneBtn" style="border-color:var(--accent);color:var(--accent);">Done</button>
-      </div>
-    </div>
-  </div>
-
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-  <script src="planMatch.js"></script>
-<script src="fun.js"></script>
+  <script src="fun.js"></script>
   <script src="troop.js"></script>
 
   <script>
@@ -542,10 +495,6 @@ body {
     let dbClient = null;
     let dbReady = false;
     let currentUserId = null;
-
-    /* Ask for a Plan vs Actual figure before End Day will finish? Off unless
-       the person switches it on in Hub → Settings → DayTimer. */
-    let _endDayPlanReview = false;
 
     (async () => {
       try {
@@ -601,7 +550,6 @@ body {
         });
 
         // Now that auth is ready, refresh whatever the widget normally loads on boot
-        try { if (typeof loadWidgetPrefs === 'function') await loadWidgetPrefs(); } catch (e) {}
         try { if (typeof loadQuickActions === 'function') await loadQuickActions(); } catch (e) {}
         try { if (typeof loadCategories  === 'function') await loadCategories();  } catch (e) {}
         try { if (typeof refreshUpcoming === 'function') refreshUpcoming(); } catch (e) {}
@@ -807,44 +755,9 @@ body {
       });
     }
 
-    /*
-     * HUB'S COPY WINS, WHERE HUB HAS ONE.
-     *
-     * Widget preferences have always come from electron-store, which is per
-     * machine — set Slim on your desktop and your laptop never heard about it.
-     * Hub's Settings → DayTimer writes the same shape into
-     * user_settings.widget_prefs, and its own note already tells people the
-     * widget "picks these up when it next starts and signs in". Until now that
-     * was a promise nothing kept, and this is the code that keeps it.
-     *
-     * MERGED, not replaced, and in this order deliberately: local first, remote
-     * over the top. Almost everybody's stored blob is {} or holds one or two
-     * keys, so a key Hub has never written falls through to whatever the
-     * machine already had rather than being reset to a default by the merge.
-     *
-     * A failed read leaves the local prefs alone. Somebody offline gets the
-     * settings they had, not the settings they would have had if nothing had
-     * ever been set.
-     */
     async function loadWidgetPrefs() {
       try {
-        let prefs = await ipcRenderer.invoke('get-widget-prefs');
-
-        if (dbReady && currentUserId) {
-          try {
-            const { data } = await dbClient
-              .from('user_settings')
-              .select('widget_prefs')
-              .eq('user_id', currentUserId)
-              .maybeSingle();
-            const remote = data && data.widget_prefs;
-            if (remote && typeof remote === 'object' && !Array.isArray(remote)) {
-              prefs = { ...prefs, ...remote };
-            }
-          } catch (e) { console.warn('Widget: could not read prefs from Hub', e); }
-        }
-
-        _endDayPlanReview = !!prefs.endDayPlanReview;
+        const prefs = await ipcRenderer.invoke('get-widget-prefs');
         _streakHidden = !prefs.showStreak;
         _neonPref = prefs.neonOutline || null;
         applyNeonOutline(_neonPref);
@@ -867,8 +780,6 @@ body {
         applyNeonOutline(_neonPref);
       } else if (key === 'showSyncBtn') {
         if (widgetSyncBtn) widgetSyncBtn.style.display = value ? '' : 'none';
-      } else if (key === 'endDayPlanReview') {
-        _endDayPlanReview = !!value;
       }
     });
 
@@ -1766,143 +1677,7 @@ body {
       } catch (e) {}
     }
 
-    /*
-     * ── The End Day Plan vs Actual review ────────────────────────────────
-     *
-     * Resolves to a whole number 0-100 when they answer, or null when they back
-     * out — in which case the day does NOT end. There is deliberately no way to
-     * answer "skip": the only alternative to answering is to carry on working,
-     * which is the choice the two buttons offer.
-     *
-     * The panel never shows the figure. Being told it would make this a
-     * notification; having to go and find it is the entire mechanism.
-     */
-    function askPlanReview() {
-      return new Promise((resolve) => {
-        const panel  = document.getElementById('endDayReview');
-        const input  = document.getElementById('endDayReviewInput');
-        const err    = document.getElementById('endDayReviewError');
-        const done   = document.getElementById('endDayReviewDoneBtn');
-        const cancel = document.getElementById('endDayReviewCancelBtn');
-        const link   = document.getElementById('endDayReviewLink');
-        if (!panel || !input || !done || !cancel) return resolve(null);
-
-        input.value = '';
-        err.style.display = 'none';
-        panel.style.display = 'flex';
-        /* The widget is alwaysOnTop but is not modal and does not take the
-           focus away from anything else — the taskbar, the Windows key and a
-           browser all stay reachable, which they have to, because looking the
-           figure up is the point. Focusing the input inside our own window is
-           safe; grabbing focus at the OS level would not be. */
-        setTimeout(() => { try { input.focus(); } catch (e) {} }, 50);
-
-        const close = (value) => {
-          panel.style.display = 'none';
-          done.removeEventListener('click', onDone);
-          cancel.removeEventListener('click', onCancel);
-          input.removeEventListener('keydown', onKey);
-          if (link) link.removeEventListener('click', onLink);
-          resolve(value);
-        };
-
-        const onDone = () => {
-          const raw = String(input.value).trim();
-          const n = Number(raw);
-          /* Refused rather than clamped. Somebody typing 150 has misread
-             something, and silently recording 100 for them would put a number
-             in the log that nobody chose. */
-          if (raw === '' || !Number.isFinite(n) || !Number.isInteger(n) || n < 0 || n > 100) {
-            err.textContent = 'A whole number between 0 and 100, as shown on Hub.';
-            err.style.display = '';
-            try { input.focus(); } catch (e) {}
-            return;
-          }
-          close(n);
-        };
-        const onCancel = () => close(null);
-        const onKey = (e) => {
-          if (e.key === 'Enter') { e.preventDefault(); onDone(); }
-          else if (e.key === 'Escape') { e.preventDefault(); onCancel(); }
-        };
-        const onLink = (e) => {
-          e.preventDefault();
-          /* Opens the day they are being asked about, not just the app. They
-             still have to read the figure off it — this saves the typing, not
-             the looking. */
-          ipcRenderer.send('open-external', 'https://hub.howleruk.com/daytimer?date=' + todayStr());
-        };
-
-        done.addEventListener('click', onDone);
-        cancel.addEventListener('click', onCancel);
-        input.addEventListener('keydown', onKey);
-        if (link) link.addEventListener('click', onLink);
-      });
-    }
-
-    /*
-     * Record what they said, and what the figure actually was at that moment.
-     *
-     * The real score is snapshotted HERE rather than derived later because
-     * plans and entries stay editable: tidying yesterday's log changes what the
-     * calculation returns for it, so a comparison made next month would report
-     * a gap that never existed.
-     *
-     * Every failure is swallowed. This must never be the reason somebody cannot
-     * finish their day — the prompt has already done its job by the time we get
-     * here, which was to make them look.
-     */
-    async function savePlanReview(reported) {
-      if (!dbReady || !currentUserId) return;
-      const date = todayStr();
-
-      let actual = null;
-      try {
-        const [plansRes, entriesRes] = await Promise.all([
-          dbClient.from('day_plans')
-            .select('category, planned_start, planned_end')
-            .eq('user_id', currentUserId).eq('date', date),
-          dbClient.from('time_entries')
-            .select('category, started_at, ended_at')
-            .eq('user_id', currentUserId).eq('date', date)
-        ]);
-        if (!plansRes.error && !entriesRes.error && window.dtPlanMatch) {
-          actual = window.dtPlanMatch.calculate(plansRes.data || [], entriesRes.data || []);
-        }
-      } catch (e) { console.warn('Widget: could not snapshot the real score', e); }
-
-      try {
-        await dbClient.from('day_reviews').upsert([{
-          user_id: currentUserId,
-          date,
-          reported_score: reported,
-          actual_score: actual,
-          updated_at: new Date().toISOString()
-        }], { onConflict: 'user_id,date' });
-      } catch (e) { console.error('Widget: could not save the day review', e); }
-    }
-
     async function endDay(isIdle = false) {
-      /*
-       * Asked only when a person DELIBERATELY ends the day, and only if they
-       * asked to be asked.
-       *
-       * isIdle covers the auto-end after a long silence — nobody is at the
-       * keyboard, so there is nobody to answer and the day would hang unended
-       * until they came back. Closing the widget does not come through here at
-       * all, which is the other half of Flynn's "they shouldn't have to do this
-       * if they just cross the widget off. It's specifically if they are trying
-       * to end day."
-       *
-       * Returning early leaves the day exactly as it was — paused, timer intact
-       * — so "Keep working" costs nothing.
-       */
-      if (!isIdle && _endDayPlanReview && dbReady) {
-        const reported = await askPlanReview();
-        if (reported === null) return;
-        await savePlanReview(reported);
-      }
-
       const now = new Date();
       const pauseBlock = pauseBlockStartTime;
 

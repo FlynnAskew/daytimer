@@ -1014,15 +1014,43 @@ async function fetchPlansWithCalendarEvents(fromStr, toStr, userId) {
   return [...plans, ...calItems];
 }
 
-/*
- * Moved to planMatch.js so the WIDGET can use the same function — it needs the
- * figure when End Day asks somebody to report it, and a second implementation
- * over there would be the third copy of this algorithm (Hub has one too) and
- * the one that quietly drifts. Kept as a thin wrapper rather than replacing
- * every call site: five callers, one indirection, no behaviour change.
- */
 function calculatePlanMatch(plans, actuals) {
-  return window.dtPlanMatch.calculate(plans, actuals);
+  if (plans.length === 0 && actuals.length === 0) return null;
+  if (plans.length === 0) return 0;
+
+  // Build per-15-min category map for plan
+  const planMap = {};
+  plans.forEach(p => {
+    const [sh, sm] = p.planned_start.split(':').map(Number);
+    const [eh, em] = p.planned_end.split(':').map(Number);
+    const startSlot = sh * 4 + Math.floor(sm / 15);
+    const endSlot   = eh * 4 + Math.floor(em / 15);
+    for (let i = startSlot; i < endSlot; i++) {
+      planMap[i] = p.category || '_nocat_';
+    }
+  });
+
+  // Build per-15-min category map for actual
+  const actualMap = {};
+  actuals.forEach(a => {
+    const s = new Date(a.started_at);
+    const e = new Date(a.ended_at);
+    const startSlot = s.getHours() * 4 + Math.floor(s.getMinutes() / 15);
+    const endSlot   = e.getHours() * 4 + Math.floor(e.getMinutes() / 15);
+    for (let i = startSlot; i <= endSlot; i++) {
+      actualMap[i] = a.category || '_nocat_';
+    }
+  });
+
+  // Compare overlapping slots
+  const allSlots = new Set([...Object.keys(planMap), ...Object.keys(actualMap)]);
+  if (allSlots.size === 0) return null;
+  let matching = 0;
+  allSlots.forEach(s => {
+    if (planMap[s] && actualMap[s] && planMap[s] === actualMap[s]) matching++;
+  });
+
+  return Math.round((matching / allSlots.size) * 100);
 }
 
 function renderPlannerGrid(container, mode, planItems, entries, compact) {
